@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>World Conquest — Unit Tests v2</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Segoe UI', monospace; background:#0f172a; color:#e2e8f0; padding:20px; }
+    h1 { color:#38bdf8; margin-bottom:16px; }
+    h2 { color:#94a3b8; margin:20px 0 8px; border-bottom:1px solid #1e293b; padding-bottom:4px; font-size:14px; }
+    .test { padding:4px 8px; margin:2px 0; border-radius:4px; font-size:13px; }
+    .pass { background:rgba(16,185,129,0.1); border-left:3px solid #10b981; }
+    .fail { background:rgba(239,68,68,0.1); border-left:3px solid #ef4444; }
+    .error { background:rgba(245,158,11,0.1); border-left:3px solid #f59e0b; }
+    .summary { margin-top:8px; margin-bottom:16px; padding:16px; border-radius:8px; }
+    .summary h3 { margin-bottom:8px; }
+    #results { max-height:80vh; overflow-y:auto; }
+  </style>
+</head>
+<body>
+  <h1>🧪 World Conquest — Enhancement Unit Tests</h1>
+  <div class="summary" id="summary"></div>
+  <div id="results"></div>
+
+  <!-- Load game scripts in dependency order -->
+  <script src="/js/data/territory-data.js"></script>
+  <script src="/js/data/military-data.js"></script>
+  <script src="/js/data/cities-data.js"></script>
+  <script src="/js/core/game-config.js"></script>
+  <script src="/js/systems/game-clock.js"></script>
+  <script src="/js/systems/unit-designer.js"></script>
+  <script src="/js/systems/research-tree.js"></script>
+  <script src="/js/systems/economy-system.js"></script>
+  <script src="/js/systems/geopolitics.js"></script>
+  <script src="/js/systems/units.js"></script>
+  <script src="/js/systems/battle-resolver.js"></script>
+  <script src="/js/systems/game-engine.js"></script>
+
+  <script>
+    // ========== Test Framework ==========
+    const results = { total:0, passed:0, failed:0, errors:0 };
+    const container = document.getElementById("results");
+
+    function assert(condition, testName, detail = "") {
+      results.total++;
+      const div = document.createElement("div");
+      div.classList.add("test");
+      if (condition) {
+        results.passed++;
+        div.classList.add("pass");
+        div.textContent = `✅ ${testName}`;
+      } else {
+        results.failed++;
+        div.classList.add("fail");
+        div.textContent = `❌ ${testName}${detail ? " — " + detail : ""}`;
+      }
+      container.appendChild(div);
+    }
+
+    function assertEqual(actual, expected, testName) {
+      assert(actual === expected, testName, `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    }
+
+    function assertType(val, type, testName) {
+      assert(typeof val === type, testName, `expected ${type}, got ${typeof val}`);
+    }
+
+    function assertExists(val, testName) {
+      assert(val !== undefined && val !== null, testName, `value is ${val}`);
+    }
+
+    function assertArray(val, testName) {
+      assert(Array.isArray(val), testName, `expected array, got ${typeof val}`);
+    }
+
+    function section(name) {
+      const h2 = document.createElement("h2");
+      h2.textContent = name;
+      container.appendChild(h2);
+    }
+
+    function runSafe(fn, sectionName) {
+      try {
+        fn();
+      } catch (err) {
+        results.errors++;
+        results.total++;
+        const div = document.createElement("div");
+        div.classList.add("test", "error");
+        div.textContent = `⚠️ [${sectionName}] UNCAUGHT ERROR: ${err.message}`;
+        container.appendChild(div);
+        console.error(`[${sectionName}]`, err);
+      }
+    }
+
+    // ========== Bootstrap Game Engine ==========
+    let engine;
+    runSafe(() => {
+      section("🏗️ Engine Initialization");
+      engine = new GameEngine();
+      engine.init("USA");
+      assert(true, "GameEngine.init('USA') completes without error");
+      assertEqual(engine.playerCode, "USA", "Player code is 'USA'");
+      assertEqual(engine.phase, "playing", "Game phase is 'playing'");
+      assert(Object.keys(engine.forces).length > 10, `Forces loaded (${Object.keys(engine.forces).length} factions)`);
+      assert(Object.keys(engine.ownership).length > 50, `Ownership map populated (${Object.keys(engine.ownership).length} territories)`);
+    }, "Engine Init");
+
+    if (!engine) {
+      document.getElementById("summary").innerHTML = '<h3 style="color:#ef4444">❌ FATAL: Engine failed to initialize. Cannot run tests.</h3>';
+      throw new Error("Engine init failed");
+    }
+
+    // ── Phase 3: Research Tree ──
+    runSafe(() => {
+      section("🔬 Research Tree (Phase 3, Enhancement #13)");
+
+      assertExists(engine.researchTree, "Engine has researchTree instance");
+
+      const playerRes = engine.researchTree.factionResearch?.["USA"];
+      assertExists(playerRes, "Player faction has research data");
+
+      const branches = Object.keys(playerRes || {});
+      assertEqual(branches.length, 4, `4 research branches (got: ${branches.join(",")})`);
+
+      // Each branch has level 0 or 1
+      for (const branch of branches) {
+        const state = playerRes[branch];
+        assertExists(state, `Branch '${branch}' has state`);
+        assertType(state.level, "number", `Branch '${branch}' has numeric level`);
+        assert(state.nodes instanceof Set, `Branch '${branch}' nodes is a Set`);
+      }
+
+      // Available nodes
+      const available = engine.researchTree.getAvailableNodes("USA");
+      assertArray(available, "getAvailableNodes returns array");
+      assert(available.length > 0, `Has ${available.length} available nodes at start`);
+
+      // Start research on first available node
+      if (available.length > 0) {
+        const node = available[0];
+        assertExists(node.id, "Available node has ID");
+        const started = engine.researchTree.startResearch("USA", node.branch, node.id, 0);
+        assert(started !== false && started !== null, `startResearch('USA', '${node.branch}', '${node.id}', 0) succeeds`);
+
+        const active = engine.researchTree.activeResearch?.["USA"];
+        assertExists(active, "Active research set for player");
+      }
+
+      // Process tick
+      const completed = engine.researchTree.processTick(1000);
+      assertArray(completed, "processTick returns array");
+
+      // AI auto-research
+      const aiCode = Object.keys(MILITARY_DATA).find(c => c !== "USA");
+      if (aiCode) {
+        engine.researchTree.autoResearch(aiCode, 0);
+        assert(true, `AI autoResearch('${aiCode}') runs without error`);
+      }
+    }, "Research Tree");
+
+    // ── Phase 4: Espionage ──
+    runSafe(() => {
+      section("🕵️ Espionage System (Phase 4, Enhancement #4)");
+
+      assertType(engine.performEspionage, "function", "performEspionage method exists");
+
+      const target = Object.keys(MILITARY_DATA).find(c => c !== "USA");
+      assertExists(target, "Found a target faction for espionage");
+
+      // Ensure sufficient budget
+      const eco = engine.economySystem.getEconomy("USA");
+      eco.budget = 500; // Set enough budget
+
+      // Test steal_tech
+      const result1 = engine.performEspionage(target, "steal_tech");
+      assertExists(result1, "steal_tech returns result object (not null)");
+      assertType(result1.success, "boolean", "Result has boolean 'success'");
+      assertType(result1.message, "string", "Result has string 'message'");
+      assertEqual(result1.operation, "steal_tech", "Result has correct operation");
+
+      // Test sabotage
+      eco.budget = 500;
+      const result2 = engine.performEspionage(target, "sabotage");
+      assertExists(result2, "sabotage returns result object");
+      assertType(result2.success, "boolean", "Sabotage has boolean success");
+      assertType(result2.message, "string", "Sabotage has string message");
+
+      // Test rebellion
+      eco.budget = 500;
+      const result3 = engine.performEspionage(target, "rebellion");
+      assertExists(result3, "rebellion returns result object");
+      assertType(result3.success, "boolean", "Rebellion has boolean success");
+
+      // Test invalid operation
+      eco.budget = 500;
+      const result4 = engine.performEspionage(target, "nonexistent_op");
+      assertExists(result4, "Invalid operation returns result (not null)");
+      assertEqual(result4.success, false, "Invalid operation returns success=false");
+      assert(result4.message.includes("Unknown"), "Invalid op message mentions 'Unknown'");
+
+      // Test insufficient budget
+      eco.budget = 1;
+      const result5 = engine.performEspionage(target, "steal_tech");
+      assertExists(result5, "Insufficient budget returns result (not null)");
+      assertEqual(result5.success, false, "Insufficient budget returns success=false");
+      assert(result5.message.includes("budget") || result5.message.includes("Budget"),
+        "Insufficient budget message mentions budget");
+
+      // Restore budget
+      eco.budget = 500;
+    }, "Espionage");
+
+    // ── Phase 4: Trade Routes ──
+    runSafe(() => {
+      section("📦 Trade Routes (Phase 4, Enhancement #14)");
+
+      assertType(engine.getTradeRoutes, "function", "getTradeRoutes method exists");
+
+      const routes = engine.getTradeRoutes("USA");
+      assertArray(routes, "getTradeRoutes returns array");
+
+      if (routes.length > 0) {
+        const route = routes[0];
+        assertExists(route.from, "Route has 'from' property");
+        assertExists(route.to, "Route has 'to' property");
+        assertType(route.volume, "number", "Route has numeric volume");
+        assert(route.volume > 0, `Route volume is positive (${route.volume})`);
+      }
+      assert(routes.length <= 10, `Routes capped at 10 (got ${routes.length})`);
+    }, "Trade Routes");
+
+    // ── Phase 4: Economic History ──
+    runSafe(() => {
+      section("📈 Economic History (Phase 4, Enhancement #15)");
+
+      assertType(engine._recordEconomicSnapshot, "function", "_recordEconomicSnapshot exists");
+      assertType(engine.getEconomicHistory, "function", "getEconomicHistory exists");
+
+      // Record snapshots
+      engine._recordEconomicSnapshot();
+      engine._recordEconomicSnapshot();
+
+      const history = engine.getEconomicHistory("USA");
+      assertArray(history, "getEconomicHistory returns array");
+      assert(history.length >= 1, `History has ${history.length} entries`);
+
+      if (history.length > 0) {
+        assertType(history[0].gdp, "number", "Snapshot has numeric GDP");
+        assertType(history[0].budget, "number", "Snapshot has numeric budget");
+        assertType(history[0].stability, "number", "Snapshot has numeric stability");
+      }
+
+      // Unknown faction returns empty array
+      const unknown = engine.getEconomicHistory("ZZZZ");
+      assertArray(unknown, "Unknown faction history returns array");
+      assertEqual(unknown.length, 0, "Unknown faction history is empty");
+    }, "Economic History");
+
+    // ── Phase 4: Resource Market ──
+    runSafe(() => {
+      section("🏪 Resource Market (Phase 4, Enhancement #16)");
+
+      assertType(engine.getResourceMarket, "function", "getResourceMarket exists");
+      assertType(engine.fluctuateMarket, "function", "fluctuateMarket exists");
+      assertType(engine.buyResource, "function", "buyResource exists");
+      assertType(engine.sellResource, "function", "sellResource exists");
+
+      const market = engine.getResourceMarket();
+      assertType(market, "object", "Market is an object");
+
+      const resources = ["oil", "steel", "tech", "food", "rare_earth"];
+      for (const res of resources) {
+        assertExists(market[res], `Market has '${res}'`);
+        assertType(market[res].price, "number", `${res} price is numeric`);
+        assert(market[res].price > 0, `${res} price > 0 ($${market[res].price})`);
+        assertType(market[res].supply, "number", `${res} supply is numeric`);
+        assertType(market[res].trend, "number", `${res} trend is numeric`);
+      }
+
+      // Fluctuate
+      engine.fluctuateMarket();
+      assert(true, "fluctuateMarket runs without error");
+
+      // Buy
+      const eco = engine.economySystem.getEconomy("USA");
+      eco.budget = 1000;
+      const buyResult = engine.buyResource("oil", 10);
+      assertExists(buyResult, "buyResource returns result");
+
+      // Sell
+      const sellResult = engine.sellResource("oil", 5);
+      assertExists(sellResult, "sellResource returns result");
+
+      // Buy invalid resource
+      const badBuy = engine.buyResource("unobtanium", 10);
+      assert(!badBuy?.success || badBuy === null || badBuy === undefined,
+        "Invalid resource buy handled gracefully");
+    }, "Resource Market");
+
+    // ── Phase 4: World Council ──
+    runSafe(() => {
+      section("🏛️ World Council (Phase 4, Enhancement #17)");
+
+      assertType(engine.proposeResolution, "function", "proposeResolution exists");
+      assertType(engine.getWorldCouncilResolutions, "function", "getWorldCouncilResolutions exists");
+
+      const target = Object.keys(MILITARY_DATA).find(c => c !== "USA");
+
+      const res1 = engine.proposeResolution("sanctions", target);
+      assertExists(res1, "sanctions resolution returns result");
+      assertType(res1.type, "string", "Resolution has type");
+      assertType(res1.passed, "boolean", "Resolution has passed boolean");
+      assert(res1.votesFor >= 0, `votesFor ≥ 0 (${res1.votesFor})`);
+      assert(res1.votesAgainst >= 0, `votesAgainst ≥ 0 (${res1.votesAgainst})`);
+
+      // Different types
+      const res2 = engine.proposeResolution("ceasefire", target);
+      assertExists(res2, "ceasefire resolution returns result");
+
+      const res3 = engine.proposeResolution("arms_embargo", target);
+      assertExists(res3, "arms_embargo resolution returns result");
+
+      // Get stored resolutions
+      const all = engine.getWorldCouncilResolutions();
+      assertArray(all, "getWorldCouncilResolutions returns array");
+      assert(all.length >= 3, `At least 3 stored resolutions (${all.length})`);
+    }, "World Council");
+
+    // ── Phase 4: Diplomatic Map ──
+    runSafe(() => {
+      section("🗺️ Diplomatic Map Overlay (Phase 4, Enhancement #18)");
+
+      assertType(engine.getDiplomaticMapData, "function", "getDiplomaticMapData exists");
+
+      const dipData = engine.getDiplomaticMapData();
+      assertType(dipData, "object", "Returns object");
+
+      assertExists(dipData["USA"], "Player (USA) exists in data");
+      assertEqual(dipData["USA"]?.status, "player", "USA has status 'player'");
+
+      // Validate all statuses
+      const validStatuses = ["player", "allied", "neutral", "enemy"];
+      let invalidCount = 0;
+      for (const [code, info] of Object.entries(dipData)) {
+        if (!validStatuses.includes(info.status)) invalidCount++;
+      }
+      assertEqual(invalidCount, 0, "All factions have valid statuses");
+
+      assert(Object.keys(dipData).length > 10, `${Object.keys(dipData).length} factions in diplomatic data`);
+    }, "Diplomatic Map");
+
+    // ── Phase 4: Peace Treaty ──
+    runSafe(() => {
+      section("🕊️ Peace Treaty (Phase 4, Enhancement #19)");
+
+      assertType(engine.proposePeaceTreaty, "function", "proposePeaceTreaty exists");
+
+      // Ensure we're at war with someone
+      const target = Object.keys(MILITARY_DATA).find(c => c !== "USA");
+      if (!engine.geo.isAtWar("USA", target)) {
+        engine.geo.declareWar("USA", target);
+      }
+      assert(engine.geo.isAtWar("USA", target), `At war with ${target}`);
+
+      // Propose with minimal terms
+      const result1 = engine.proposePeaceTreaty(target, { territory:[], reparations:0, dmz:false });
+      assertExists(result1, "Treaty returns result (not null)");
+      assertType(result1.accepted, "boolean", "Result has boolean 'accepted'");
+      assertType(result1.message, "string", "Result has string 'message'");
+      assertExists(result1.terms, "Result has terms object");
+
+      // Propose with harsh terms
+      const result2 = engine.proposePeaceTreaty(target, { territory:[], reparations:200, dmz:true });
+      assertExists(result2, "Harsh terms return result");
+      assertType(result2.accepted, "boolean", "Harsh result has accepted");
+
+      // Propose peace with non-war target
+      const neutral = Object.keys(MILITARY_DATA).find(c => c !== "USA" && !engine.geo.isAtWar("USA", c));
+      if (neutral) {
+        const result3 = engine.proposePeaceTreaty(neutral, { territory:[], reparations:0, dmz:false });
+        assertExists(result3, "Non-war treaty returns result (not null)");
+        assertEqual(result3.accepted, false, "Non-war treaty is not accepted");
+      }
+    }, "Peace Treaty");
+
+    // ── Phase 5: Save/Load ──
+    runSafe(() => {
+      section("💾 Save / Load Game (Phase 5, Enhancement #20)");
+
+      assertType(engine.saveGame, "function", "saveGame exists");
+      assertType(engine.loadGame, "function", "loadGame exists");
+      assertType(engine.getSaveSlots, "function", "getSaveSlots exists");
+      assertType(engine.autoSave, "function", "autoSave exists");
+
+      // Save to slot 0
+      const saved = engine.saveGame(0);
+      assertEqual(saved, true, "saveGame(0) returns true");
+
+      // Verify localStorage
+      const raw = localStorage.getItem("world_conquest_save_0");
+      assert(raw !== null, "Slot 0 exists in localStorage");
+
+      if (raw) {
+        const data = JSON.parse(raw);
+        assertEqual(data.version, 2, "Save version is 2");
+        assertEqual(data.playerCode, "USA", "Saved playerCode is USA");
+        assertExists(data.ownership, "Save has ownership");
+        assertExists(data.forces, "Save has forces");
+        assertArray(data.alliances, "Save has alliances array");
+        assertArray(data.log, "Save has log array");
+        assertExists(data.researchFactions, "Save has research data");
+        assertExists(data.dateString, "Save has dateString");
+        assertType(data.timestamp, "number", "Save has numeric timestamp");
+      }
+
+      // Get save slots
+      const slots = engine.getSaveSlots();
+      assertArray(slots, "getSaveSlots returns array");
+      assertEqual(slots.length, 4, "4 save slots");
+      assert(slots[0].hasData, "Slot 0 has data");
+      assertEqual(slots[0].label, "Slot 1", "Slot 0 labeled 'Slot 1'");
+      assertEqual(slots[3].label, "Autosave", "Slot 3 labeled 'Autosave'");
+
+      // Load from slot 0
+      const loaded = engine.loadGame(0);
+      assertEqual(loaded, true, "loadGame(0) returns true");
+      assertEqual(engine.playerCode, "USA", "Player code restored");
+
+      // Load from empty slot
+      localStorage.removeItem("world_conquest_save_2");
+      const emptyLoad = engine.loadGame(2);
+      assertEqual(emptyLoad, false, "Empty slot load returns false");
+
+      // Auto-save
+      engine.autoSave();
+      assert(localStorage.getItem("world_conquest_save_3") !== null, "Autosave writes to slot 3");
+
+      // Corrupted save
+      localStorage.setItem("world_conquest_save_2", "{bad json}");
+      const corruptLoad = engine.loadGame(2);
+      assertEqual(corruptLoad, false, "Corrupted save load returns false");
+
+      // Clean up
+      for (let i = 0; i < 4; i++) localStorage.removeItem(`world_conquest_save_${i}`);
+    }, "Save/Load");
+
+    // ── Phase 2: Naval Invasions ──
+    runSafe(() => {
+      section("⚓ Naval Invasions (Phase 2, Enhancement #3)");
+
+      assertType(engine.canNavalInvade, "function", "canNavalInvade exists");
+      assertType(engine.canAttack, "function", "canAttack exists");
+
+      // canNavalInvade returns boolean
+      const invaded = engine.canNavalInvade("USA", "JPN");
+      assertType(invaded, "boolean", "canNavalInvade returns boolean");
+    }, "Naval Invasions");
+
+    // ── Phase 2: Campaigns ──
+    runSafe(() => {
+      section("🗺️ Multi-Territory Campaigns (Phase 2, Enhancement #2)");
+
+      assertType(engine.planCampaign, "function", "planCampaign exists");
+      assertType(engine.executeCampaign, "function", "executeCampaign exists");
+
+      // planCampaign needs territory IDs, not country codes
+      // Find a player territory and an enemy territory
+      const playerTerritories = Object.entries(engine.ownership)
+        .filter(([tid, owner]) => owner === "USA")
+        .map(([tid]) => tid);
+      const enemyTerritories = Object.entries(engine.ownership)
+        .filter(([tid, owner]) => owner !== "USA")
+        .map(([tid]) => tid);
+
+      assert(playerTerritories.length > 0, `Player has ${playerTerritories.length} territories`);
+      assert(enemyTerritories.length > 0, `Enemy has ${enemyTerritories.length} territories`);
+
+      if (playerTerritories.length > 0 && enemyTerritories.length > 0) {
+        const plan = engine.planCampaign(playerTerritories[0], enemyTerritories[0]);
+        // planCampaign returns array OR null (if no path found)
+        assert(plan === null || Array.isArray(plan),
+          `planCampaign returns array or null (got ${typeof plan})`);
+      }
+    }, "Campaigns");
+
+    // ── Phase 2: Alliance Co-belligerence ──
+    runSafe(() => {
+      section("🤝 Alliance Co-Belligerence (Phase 2, Enhancement #5)");
+
+      assertType(engine.processAllianceCoBelligerence, "function", "processAllianceCoBelligerence exists");
+      engine.processAllianceCoBelligerence("USA", "CHN");
+      assert(true, "processAllianceCoBelligerence runs without crash");
+    }, "Alliance Co-Belligerence");
+
+    // ── Edge Cases ──
+    runSafe(() => {
+      section("🔒 Edge Cases & Error Handling");
+
+      // Espionage with zero budget
+      const eco = engine.economySystem.getEconomy("USA");
+      const origBudget = eco.budget;
+      eco.budget = 0;
+      const target = Object.keys(MILITARY_DATA).find(c => c !== "USA");
+      const zeroResult = engine.performEspionage(target, "steal_tech");
+      assertExists(zeroResult, "Espionage with $0 budget returns object (not null)");
+      assertEqual(zeroResult.success, false, "Zero-budget espionage fails");
+      eco.budget = origBudget;
+
+      // getEconomicHistory for unknown faction
+      const unknownHist = engine.getEconomicHistory("ZZZZ");
+      assertArray(unknownHist, "Unknown faction history returns array");
+      assertEqual(unknownHist.length, 0, "Unknown faction history is empty");
+
+      // Save/load with corrupted data
+      localStorage.setItem("world_conquest_save_2", "{{bad}}");
+      const corruptLoad = engine.loadGame(2);
+      assertEqual(corruptLoad, false, "Corrupted save handled gracefully");
+      localStorage.removeItem("world_conquest_save_2");
+
+      // Load from non-existent slot
+      localStorage.removeItem("world_conquest_save_1");
+      const missingLoad = engine.loadGame(1);
+      assertEqual(missingLoad, false, "Missing slot load returns false");
+    }, "Edge Cases");
+
+    // ── Battle Resolver: Class Basics ──
+    runSafe(() => {
+      section("⚔️ BattleResolver — Class Basics");
+
+      // Instantiation
+      const br = new BattleResolver();
+      assertExists(br, "BattleResolver instantiates without error");
+      assertType(br.resolve, "function", "resolve method exists");
+      assertType(br.chooseAICommand, "function", "chooseAICommand method exists");
+      assertType(BattleResolver.getTerrainForLocation, "function", "getTerrainForLocation static exists");
+
+      // BATTLE_COMMANDS constant
+      assertExists(BATTLE_COMMANDS, "BATTLE_COMMANDS constant exists");
+      const expectedCmds = ["full_assault", "defensive_hold", "flanking", "retreat", "bombardment"];
+      for (const key of expectedCmds) {
+        assertExists(BATTLE_COMMANDS[key], `Command '${key}' exists`);
+        assertType(BATTLE_COMMANDS[key].attackMod, "number", `${key} has numeric attackMod`);
+        assertType(BATTLE_COMMANDS[key].defenseMod, "number", `${key} has numeric defenseMod`);
+        assertType(BATTLE_COMMANDS[key].moraleCost, "number", `${key} has numeric moraleCost`);
+        assertExists(BATTLE_COMMANDS[key].name, `${key} has a name`);
+      }
+
+      // TERRAIN_TYPES constant
+      assertExists(TERRAIN_TYPES, "TERRAIN_TYPES constant exists");
+      const expectedTerrains = ["plains", "urban", "forest", "desert", "mountain", "coastal", "arctic"];
+      for (const key of expectedTerrains) {
+        assertExists(TERRAIN_TYPES[key], `Terrain '${key}' exists`);
+        assertType(TERRAIN_TYPES[key].defenseBonus, "number", `${key} has numeric defenseBonus`);
+      }
+
+      // Morale constants
+      assertType(MORALE_ROUT_THRESHOLD, "number", "MORALE_ROUT_THRESHOLD is numeric");
+      assertType(MORALE_SHAKEN_THRESHOLD, "number", "MORALE_SHAKEN_THRESHOLD is numeric");
+      assert(MORALE_ROUT_THRESHOLD < MORALE_SHAKEN_THRESHOLD, "Rout threshold < Shaken threshold");
+    }, "BattleResolver Basics");
+
+    // ── Battle Resolver: resolve() Method ──
+    runSafe(() => {
+      section("⚔️ BattleResolver — resolve() Core");
+
+      const br = new BattleResolver();
+
+      // Create test units with known compositions
+      const attackerUnit = {
+        composition: { troops: 5000, tanks: 200, artillery: 80, aircraft: 40, fighters: 15, helicopters: 10 }
+      };
+      const defenderUnit = {
+        composition: { troops: 3000, tanks: 100, artillery: 50, aircraft: 20, fighters: 5, helicopters: 5 }
+      };
+
+      // Test resolve with full_assault vs defensive_hold on plains
+      const result = br.resolve(attackerUnit, defenderUnit, "full_assault", "defensive_hold", "plains", null);
+      assertExists(result, "resolve() returns a result object");
+      assertType(result.attackerWins, "boolean", "Result has boolean attackerWins");
+      assertExists(result.phases, "Result has phases array");
+      assertArray(result.phases, "phases is an array");
+      assert(result.phases.length >= 2, `At least 2 phases (got ${result.phases.length})`);
+      assertType(result.attackerMorale, "number", "attackerMorale is numeric");
+      assertType(result.defenderMorale, "number", "defenderMorale is numeric");
+      assert(result.attackerMorale >= 0 && result.attackerMorale <= 100, `attackerMorale in [0,100] (${result.attackerMorale})`);
+      assert(result.defenderMorale >= 0 && result.defenderMorale <= 100, `defenderMorale in [0,100] (${result.defenderMorale})`);
+      assertType(result.attackerLossPct, "number", "attackerLossPct is numeric");
+      assertType(result.defenderLossPct, "number", "defenderLossPct is numeric");
+      assert(result.attackerLossPct >= 0 && result.attackerLossPct <= 100, `attackerLossPct in [0,100] (${result.attackerLossPct})`);
+      assert(result.defenderLossPct >= 0 && result.defenderLossPct <= 100, `defenderLossPct in [0,100] (${result.defenderLossPct})`);
+      assertType(result.attackerRouted, "boolean", "attackerRouted is boolean");
+      assertType(result.defenderRouted, "boolean", "defenderRouted is boolean");
+      assertExists(result.terrain, "Result has terrain object");
+      assertExists(result.attackerCommand, "Result has attackerCommand object");
+      assertExists(result.defenderCommand, "Result has defenderCommand object");
+
+      // Phase structure
+      for (const phase of result.phases) {
+        assertExists(phase.name, `Phase has name: ${phase.name}`);
+        assertType(phase.attackerAdvantage, "boolean", `Phase '${phase.name}' has boolean attackerAdvantage`);
+        assertType(phase.attackerMoraleLoss, "number", `Phase '${phase.name}' has numeric attackerMoraleLoss`);
+        assertType(phase.defenderMoraleLoss, "number", `Phase '${phase.name}' has numeric defenderMoraleLoss`);
+        assertType(phase.attackerCasualties, "number", `Phase '${phase.name}' has numeric attackerCasualties`);
+        assertType(phase.defenderCasualties, "number", `Phase '${phase.name}' has numeric defenderCasualties`);
+        assertExists(phase.summary, `Phase '${phase.name}' has summary`);
+      }
+
+      // Test that phases include Air Superiority and Bombardment at minimum
+      const phaseNames = result.phases.map(p => p.name);
+      assert(phaseNames.includes("Air Superiority"), "Phases include Air Superiority");
+      assert(phaseNames.includes("Bombardment"), "Phases include Bombardment");
+      // full_assault should include Ground Assault (not bombardment-only, not retreat)
+      assert(phaseNames.includes("Ground Assault"), "Full Assault includes Ground Assault phase");
+    }, "BattleResolver resolve()");
+
+    // ── Battle Resolver: Command Variants ──
+    runSafe(() => {
+      section("⚔️ BattleResolver — Command Variants");
+
+      const br = new BattleResolver();
+
+      const makeUnit = (troops, tanks) => ({
+        composition: { troops, tanks, artillery: 20, aircraft: 10, fighters: 5 }
+      });
+
+      // Test each command type runs without error and returns valid result
+      const commands = ["full_assault", "defensive_hold", "flanking", "retreat", "bombardment"];
+      for (const cmd of commands) {
+        const a = makeUnit(3000, 100);
+        const d = makeUnit(2000, 80);
+        const res = br.resolve(a, d, cmd, "defensive_hold", "plains", null);
+        assertExists(res, `resolve() with '${cmd}' returns result`);
+        assertType(res.attackerWins, "boolean", `'${cmd}' result has attackerWins`);
+        assert(res.phases.length >= 2, `'${cmd}' has ≥ 2 phases (got ${res.phases.length})`);
+      }
+
+      // Retreat command: attacker should NOT win (autoRetreat = true)
+      const retreatAtk = makeUnit(10000, 500);
+      const retreatDef = makeUnit(100, 5);
+      const retreatResult = br.resolve(retreatAtk, retreatDef, "retreat", "defensive_hold", "plains", null);
+      assertEqual(retreatResult.attackerWins, false, "Retreat command: attacker does not win (cedes ground)");
+
+      // Bombardment-only command: should exclude Ground Assault phase
+      const bombAtk = makeUnit(1000, 50);
+      const bombDef = makeUnit(800, 40);
+      const bombResult = br.resolve(bombAtk, bombDef, "bombardment", "defensive_hold", "plains", null);
+      const bombPhaseNames = bombResult.phases.map(p => p.name);
+      assert(!bombPhaseNames.includes("Ground Assault"), "Bombardment-only excludes Ground Assault phase");
+    }, "BattleResolver Commands");
+
+    // ── Battle Resolver: Terrain & AI ──
+    runSafe(() => {
+      section("⚔️ BattleResolver — Terrain Detection & AI");
+
+      // getTerrainForLocation
+      const arcticTerrain = BattleResolver.getTerrainForLocation(70, 30);
+      assertEqual(arcticTerrain, "arctic", "Lat 70° → arctic");
+
+      const desertTerrain = BattleResolver.getTerrainForLocation(25, 30);
+      assertEqual(desertTerrain, "desert", "Lat 25° Lng 30° → desert");
+
+      const plainsTerrain = BattleResolver.getTerrainForLocation(35, -90);
+      assertEqual(plainsTerrain, "plains", "US heartland coords → plains");
+
+      const forestTerrain = BattleResolver.getTerrainForLocation(55, 60);
+      assertEqual(forestTerrain, "forest", "Siberian coords → forest");
+
+      // Mountain detection (Himalayas: ~30N, ~80E)
+      const mountainTerrain = BattleResolver.getTerrainForLocation(30, 80);
+      assertEqual(mountainTerrain, "mountain", "Himalayan coords → mountain");
+
+      // AI command selection
+      const br = new BattleResolver();
+
+      // Much stronger defender → full_assault
+      const strongDef = { composition: { troops: 10000, tanks: 500, artillery: 200 } };
+      const weakAtk = { composition: { troops: 500, tanks: 10, artillery: 5 } };
+      const aiCmd1 = br.chooseAICommand(strongDef, weakAtk);
+      assertEqual(aiCmd1, "full_assault", "Much stronger defender chooses full_assault");
+
+      // Even forces → defensive_hold
+      const evenA = { composition: { troops: 3000, tanks: 100 } };
+      const evenD = { composition: { troops: 3500, tanks: 110 } };
+      const aiCmd2 = br.chooseAICommand(evenD, evenA);
+      assertEqual(aiCmd2, "defensive_hold", "Evenly matched defender chooses defensive_hold");
+
+      // Much weaker defender → retreat
+      const tinyDef = { composition: { troops: 100, tanks: 2 } };
+      const hugeAtk = { composition: { troops: 20000, tanks: 800, artillery: 300 } };
+      const aiCmd3 = br.chooseAICommand(tinyDef, hugeAtk);
+      assertEqual(aiCmd3, "retreat", "Much weaker defender chooses retreat");
+    }, "BattleResolver Terrain & AI");
+
+    // ── Battle Resolver: Coastal (Naval) Phase ──
+    runSafe(() => {
+      section("⚔️ BattleResolver — Naval Phase & Coastal Terrain");
+
+      const br = new BattleResolver();
+
+      // On coastal terrain, the naval phase should be included
+      const navalAtk = {
+        composition: { troops: 2000, tanks: 50, artillery: 20, aircraft: 10, naval: 30 }
+      };
+      const navalDef = {
+        composition: { troops: 1500, tanks: 40, artillery: 15, aircraft: 5, naval: 10 }
+      };
+
+      const coastalResult = br.resolve(navalAtk, navalDef, "full_assault", "defensive_hold", "coastal", null);
+      const coastPhaseNames = coastalResult.phases.map(p => p.name);
+      assert(coastPhaseNames.includes("Naval Support"), "Coastal terrain includes Naval Support phase");
+
+      // On plains (no navalBonus), naval phase should NOT appear
+      const plainsResult = br.resolve(
+        { composition: { troops: 2000, tanks: 50, naval: 30 } },
+        { composition: { troops: 1500, tanks: 40, naval: 10 } },
+        "full_assault", "defensive_hold", "plains", null
+      );
+      const plainsPhaseNames = plainsResult.phases.map(p => p.name);
+      assert(!plainsPhaseNames.includes("Naval Support"), "Plains terrain excludes Naval Support phase");
+    }, "BattleResolver Naval Phase");
+
+    // ── Engine Attack Flow ──
+    runSafe(() => {
+      section("⚔️ Engine Attack Flow (Integration)");
+
+      // engine.battleResolver should exist
+      assertExists(engine.battleResolver, "Engine has battleResolver instance");
+      assert(engine.battleResolver instanceof BattleResolver, "battleResolver is BattleResolver");
+
+      // canAttack: own territory should return false
+      const playerTerritories = engine.getPlayerTerritories();
+      assert(playerTerritories.length > 0, `Player has territories (${playerTerritories.length})`);
+      const ownTerritory = playerTerritories[0];
+      assertEqual(engine.canAttack(ownTerritory), false, "canAttack returns false for own territory");
+
+      // canAttack: non-existent territory
+      assertEqual(engine.canAttack("NONEXISTENT_TERRITORY_XYZ"), false, "canAttack returns false for non-existent territory");
+
+      // Find an attackable enemy territory
+      let attackableTarget = null;
+      for (const [tid, owner] of Object.entries(engine.ownership)) {
+        if (owner !== engine.playerCode && engine.canAttack(tid)) {
+          attackableTarget = tid;
+          break;
+        }
+      }
+
+      if (attackableTarget) {
+        assert(true, `Found attackable target: ${attackableTarget}`);
+
+        // Store defender's ownership
+        const originalDefender = engine.ownership[attackableTarget];
+        assertExists(originalDefender, "Target has a defender owner");
+
+        // Execute attack
+        const battleResult = engine.attack(attackableTarget, "full_assault");
+        assertExists(battleResult, "engine.attack() returns a result");
+        assertType(battleResult.attackerWins, "boolean", "Battle result has attackerWins");
+        assertExists(battleResult.attacker, "Result has attacker field");
+        assertExists(battleResult.defender, "Result has defender field");
+        assertEqual(battleResult.attacker, engine.playerCode, "Attacker is player");
+        assertEqual(battleResult.defender, originalDefender, "Defender matches original owner");
+        assertExists(battleResult.target, "Result has target field");
+        assertExists(battleResult.losses, "Result has losses object");
+        assertType(battleResult.losses.attackerPercent, "number", "losses.attackerPercent is numeric");
+        assertType(battleResult.losses.defenderPercent, "number", "losses.defenderPercent is numeric");
+        assertExists(battleResult.attackerName, "Result has attackerName");
+        assertExists(battleResult.defenderName, "Result has defenderName");
+
+        // Ownership should match result
+        if (battleResult.attackerWins) {
+          assertEqual(engine.ownership[attackableTarget], engine.playerCode, "Victory: territory ownership transferred to player");
+        } else {
+          assertEqual(engine.ownership[attackableTarget], originalDefender, "Defeat: territory remains with defender");
+        }
+
+        // Resume speed
+        engine.resumeAfterBattle();
+      } else {
+        assert(true, "No directly attackable territory found (island nation?) — skipping integration");
+      }
+
+      // attack on own territory should return null
+      const nullResult = engine.attack(playerTerritories[0], "full_assault");
+      assertEqual(nullResult, null, "attack() on own territory returns null");
+
+      // attack on non-existent territory
+      const nullResult2 = engine.attack("NONEXISTENT_TERRITORY_XYZ", "full_assault");
+      assertEqual(nullResult2, null, "attack() on non-existent territory returns null");
+    }, "Engine Attack Flow");
+
+    // ── Battle Resolver: Losses & Edge Cases ──
+    runSafe(() => {
+      section("⚔️ BattleResolver — Losses & Edge Cases");
+
+      const br = new BattleResolver();
+
+      // Units with zero air power — air phase should still run with minimal casualties
+      const noAirAtk = { composition: { troops: 5000, tanks: 200, artillery: 80 } };
+      const noAirDef = { composition: { troops: 3000, tanks: 100, artillery: 50 } };
+      const noAirResult = br.resolve(noAirAtk, noAirDef, "full_assault", "defensive_hold", "plains", null);
+      assertExists(noAirResult, "Resolve works with zero aircraft on both sides");
+      const airPhase = noAirResult.phases.find(p => p.name === "Air Superiority");
+      assertExists(airPhase, "Air phase still exists even with 0 aircraft");
+      // When both have 0 air power, casualties should be 0
+      assertEqual(airPhase.attackerCasualties, 0, "Zero air power → 0 attacker air casualties");
+      assertEqual(airPhase.defenderCasualties, 0, "Zero air power → 0 defender air casualties");
+
+      // Minimum units — resolver should not crash
+      const minAtk = { composition: { troops: 1 } };
+      const minDef = { composition: { troops: 1 } };
+      const minResult = br.resolve(minAtk, minDef, "full_assault", "defensive_hold", "plains", null);
+      assertExists(minResult, "Resolve works with minimal units (1 troop each)");
+      assertType(minResult.attackerWins, "boolean", "Minimal units still returns attackerWins");
+
+      // Losses are capped — _calcTotalLoss should cap at 85% and floor at 5%
+      assert(minResult.attackerLossPct >= 5, `Attacker loss ≥ 5% (got ${minResult.attackerLossPct})`);
+      assert(minResult.attackerLossPct <= 85, `Attacker loss ≤ 85% (got ${minResult.attackerLossPct})`);
+      assert(minResult.defenderLossPct >= 5, `Defender loss ≥ 5% (got ${minResult.defenderLossPct})`);
+      assert(minResult.defenderLossPct <= 85, `Defender loss ≤ 85% (got ${minResult.defenderLossPct})`);
+
+      // Verify _applyLossesToUnit doesn't reduce below 1
+      const testUnit = { composition: { troops: 10, tanks: 5 } };
+      br._applyLossesToUnit(testUnit, 0.99);
+      assert(testUnit.composition.troops >= 1, `Troops don't go below 1 after 99% loss (${testUnit.composition.troops})`);
+      assert(testUnit.composition.tanks >= 1, `Tanks don't go below 1 after 99% loss (${testUnit.composition.tanks})`);
+
+      // All terrain types: resolve should work on every terrain
+      const terrains = ["plains", "urban", "forest", "desert", "mountain", "coastal", "arctic"];
+      for (const t of terrains) {
+        const tAtk = { composition: { troops: 2000, tanks: 50, aircraft: 10, naval: 5 } };
+        const tDef = { composition: { troops: 1500, tanks: 30, aircraft: 5, naval: 3 } };
+        const tResult = br.resolve(tAtk, tDef, "full_assault", "defensive_hold", t, null);
+        assertExists(tResult, `Resolve works on '${t}' terrain`);
+        assertType(tResult.attackerWins, "boolean", `'${t}' terrain returns valid result`);
+      }
+    }, "BattleResolver Edge Cases");
+
+    // ========== Summary ==========
+    const summaryDiv = document.getElementById("summary");
+    const allPassed = results.failed === 0 && results.errors === 0;
+    summaryDiv.innerHTML = `
+      <h3>${allPassed ? "✅ ALL TESTS PASSED" : "⚠️ SOME TESTS NEED ATTENTION"}</h3>
+      <p><strong>Total:</strong> ${results.total} | 
+         <span style="color:#10b981"><strong>Passed:</strong> ${results.passed}</span> | 
+         <span style="color:#ef4444"><strong>Failed:</strong> ${results.failed}</span> | 
+         <span style="color:#f59e0b"><strong>Errors:</strong> ${results.errors}</span></p>
+      <p style="font-size:12px;color:#64748b;margin-top:4px">Pass Rate: ${((results.passed / results.total) * 100).toFixed(1)}%</p>
+    `;
+    summaryDiv.style.borderColor = allPassed ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)";
+    summaryDiv.style.background = allPassed ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)";
+    summaryDiv.style.border = "1px solid";
+    summaryDiv.style.borderRadius = "8px";
+
+    console.log(`\n===== TEST RESULTS =====`);
+    console.log(`Total: ${results.total} | Passed: ${results.passed} | Failed: ${results.failed} | Errors: ${results.errors}`);
+    console.log(`Pass Rate: ${((results.passed / results.total) * 100).toFixed(1)}%`);
+    console.log(`========================\n`);
+  </script>
+</body>
+</html>

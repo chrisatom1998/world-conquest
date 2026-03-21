@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="World Conquest — A geopolitical simulator with real-world military, economic, and diplomatic systems.">
+  <title>World Conquest — Geopolitical Simulator</title>
+
+  <!-- Leaflet.js -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+  <div id="app">
+    <!-- ========== MAP ========== -->
+    <div id="map"></div>
+
+    <!-- ========== HUD — Top Bar ========== -->
+    <header id="hud-top">
+      <div class="hud-logo">
+        <span class="icon">🌍</span> World Conquest
+      </div>
+      <div class="hud-center">
+        <!-- Date & Speed Controls -->
+        <div class="hud-clock" id="hud-clock">
+          <span class="clock-date" id="hud-date">1 Jan 2026</span>
+          <div class="speed-controls" id="speed-controls">
+            <button class="speed-btn active" data-speed="0" title="Pause (Space)">⏸</button>
+            <button class="speed-btn" data-speed="1" title="Normal (1)">▶</button>
+            <button class="speed-btn" data-speed="2" title="Fast (2)">▶▶</button>
+            <button class="speed-btn" data-speed="3" title="Faster (3)">▶▶▶</button>
+            <button class="speed-btn" data-speed="4" title="Ultra (4)">⏩</button>
+            <button class="speed-btn" data-speed="5" title="Max (5)">⚡</button>
+          </div>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+          <span class="label">Territories</span>
+          <span class="value territories-value" id="hud-territories">0</span>
+        </div>
+        <div class="hud-stat">
+          <span class="label">Power</span>
+          <span class="value power-value" id="hud-power">0%</span>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+          <span class="label">💰 GDP</span>
+          <span class="value gdp-value" id="hud-gdp">$0B</span>
+        </div>
+        <div class="hud-stat">
+          <span class="label">💵 Budget</span>
+          <span class="value budget-value" id="hud-budget">$0B</span>
+        </div>
+        <div class="power-bar-container">
+          <div class="power-bar-fill" id="power-bar-fill" style="width: 0%"></div>
+        </div>
+      </div>
+      <div class="hud-right-controls">
+        <button class="hud-overlay-btn" id="btn-map-overlay" title="Toggle Map Overlay">🗺️</button>
+        <button class="hud-overlay-btn" id="btn-save-game" title="Save Game">💾</button>
+      </div>
+    </header>
+
+    <!-- ========== Production Queue Widget ========== -->
+    <div id="production-queue" class="production-queue hidden">
+      <div class="pq-header">
+        <span class="pq-icon">🏭</span>
+        <span class="pq-title">Production</span>
+        <button class="pq-toggle" id="pq-toggle">▼</button>
+      </div>
+      <div class="pq-body" id="pq-body"></div>
+    </div>
+
+    <!-- ========== Side Panel ========== -->
+    <aside id="side-panel">
+      <div class="panel-header">
+        <div class="panel-tabs" id="panel-tabs">
+          <button class="tab-btn active" data-tab="military" id="tab-military">🎖️ Military</button>
+          <button class="tab-btn" data-tab="economy" id="tab-economy">💰 Economy</button>
+          <button class="tab-btn" data-tab="diplomacy" id="tab-diplomacy">🤝 Diplomacy</button>
+        </div>
+        <button class="panel-close" id="panel-close" aria-label="Close panel">&times;</button>
+      </div>
+      <div class="panel-body" id="panel-body">
+        <!-- Populated dynamically -->
+      </div>
+      <div class="action-bar" id="action-bar">
+        <!-- Military Actions -->
+        <div class="action-buttons action-group" id="military-actions">
+          <button class="btn btn-attack" id="btn-attack" disabled>⚔️ Attack</button>
+          <button class="btn btn-fortify" id="btn-fortify" disabled>🏗️ Fortify</button>
+          <button class="btn btn-nuke" id="btn-nuke" disabled>☢️ Launch Missile</button>
+        </div>
+        <!-- Diplomacy Actions -->
+        <div class="action-buttons action-group hidden" id="diplomacy-actions">
+          <button class="btn btn-improve" id="btn-improve" disabled>🕊️ Improve</button>
+          <button class="btn btn-denounce" id="btn-denounce" disabled>📢 Denounce</button>
+          <button class="btn btn-trade" id="btn-trade" disabled>📦 Trade</button>
+          <button class="btn btn-sanction" id="btn-sanction" disabled>🚫 Sanction</button>
+          <button class="btn btn-war" id="btn-war" disabled>⚔️ Declare War</button>
+          <button class="btn btn-peace" id="btn-peace" disabled>🏳️ Offer Peace</button>
+          <button class="btn btn-spy-steal" id="btn-spy-steal" disabled>🕵️ Steal Tech</button>
+          <button class="btn btn-spy-sabotage" id="btn-spy-sabotage" disabled>💥 Sabotage</button>
+          <button class="btn btn-spy-rebel" id="btn-spy-rebel" disabled>🔥 Rebellion</button>
+          <button class="btn btn-council" id="btn-council" disabled>🏛️ UN Vote</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ========== Event Log ========== -->
+    <div id="event-log">
+      <div class="log-header">📋 Event Log</div>
+      <div class="log-body" id="log-body"></div>
+    </div>
+
+    <!-- ========== Start Screen ========== -->
+    <div id="start-screen">
+      <div class="start-container">
+        <div class="start-title">World Conquest</div>
+        <div class="start-subtitle">Geopolitical Simulator — Wage wars, forge alliances, build empires</div>
+        <input type="text" class="start-search" id="start-search" placeholder="Search countries..." autocomplete="off" />
+        <div class="country-list" id="country-list"></div>
+        <button class="btn-start" id="btn-start" disabled>Begin Campaign</button>
+      </div>
+    </div>
+
+    <!-- ========== Battle Command Selector ========== -->
+    <div id="command-select-modal">
+      <div class="command-select-container">
+        <div class="command-title">⚔️ Choose Your Battle Strategy</div>
+        <div class="command-subtitle" id="command-target-info"></div>
+        <div class="command-grid" id="command-grid">
+          <!-- Populated dynamically -->
+        </div>
+        <div class="command-footer">
+          <button class="btn btn-command-cancel" id="btn-command-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Battle Modal ========== -->
+    <div id="battle-modal">
+      <div class="battle-container" id="battle-content">
+        <!-- Populated dynamically -->
+      </div>
+      <button class="btn-battle-close" id="btn-battle-close">Continue</button>
+    </div>
+
+    <!-- ========== Nuclear Confirmation Modal ========== -->
+    <div id="nuke-modal">
+      <div class="nuke-container">
+        <div class="nuke-icon">☢️</div>
+        <div class="nuke-title">NUCLEAR LAUNCH AUTHORIZATION</div>
+        <div class="nuke-warning">This action will cause massive destruction and global diplomatic consequences. If the target has nuclear weapons, expect retaliatory strikes.</div>
+        <div class="nuke-target" id="nuke-target-name"></div>
+        <div class="nuke-actions">
+          <button class="btn btn-nuke-confirm" id="btn-nuke-confirm">AUTHORIZE LAUNCH</button>
+          <button class="btn btn-nuke-cancel" id="btn-nuke-cancel">Stand Down</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Victory Screen ========== -->
+    <div id="victory-screen">
+      <div class="victory-title" id="victory-title">🏆 World Conquered</div>
+      <div class="victory-subtitle" id="victory-subtitle">You have achieved global military dominance.</div>
+      <button class="btn-play-again" id="btn-play-again">Play Again</button>
+    </div>
+
+    <!-- ========== Research Tree Modal ========== -->
+    <div id="research-modal" class="hidden">
+      <div class="research-container">
+        <div class="research-header">
+          <h2>🔬 Research Tree</h2>
+          <button class="btn-research-close" id="btn-research-close">✕</button>
+        </div>
+        <div class="research-branches" id="research-branches">
+          <!-- Populated dynamically -->
+        </div>
+        <div class="research-info" id="research-info">
+          <div class="research-active" id="research-active"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Unit Templates Modal ========== -->
+    <div id="templates-modal" class="hidden">
+      <div class="templates-container">
+        <div class="templates-header">
+          <h2>📋 Unit Templates</h2>
+          <button class="btn-templates-close" id="btn-templates-close">✕</button>
+        </div>
+        <div class="templates-grid" id="templates-grid">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Peace Treaty Modal ========== -->
+    <div id="peace-treaty-modal" class="hidden">
+      <div class="treaty-container">
+        <div class="treaty-header">
+          <h2>🕊️ Peace Treaty</h2>
+          <button class="btn-treaty-close" id="btn-treaty-close">✕</button>
+        </div>
+        <div class="treaty-target" id="treaty-target-name">Negotiating with...</div>
+        <div class="treaty-terms">
+          <div class="treaty-term">
+            <label><input type="checkbox" id="treaty-territory" /> Demand Territory Concessions</label>
+          </div>
+          <div class="treaty-term">
+            <label>War Reparations</label>
+            <div class="treaty-slider-row">
+              <input type="range" id="treaty-reparations" min="0" max="200" value="0" class="sp2-slider" />
+              <span class="treaty-rep-value" id="treaty-rep-value">$0B</span>
+            </div>
+          </div>
+          <div class="treaty-term">
+            <label><input type="checkbox" id="treaty-dmz" /> Establish Demilitarized Zone</label>
+          </div>
+        </div>
+        <div class="treaty-actions">
+          <button class="btn btn-peace" id="btn-treaty-negotiate">🕊️ Negotiate Treaty</button>
+            <button class="btn btn-denounce" id="btn-treaty-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Troop Movement Modal ========== -->
+    <div id="troop-move-modal" class="hidden">
+      <div class="troop-move-container">
+        <div class="troop-move-title">🚀 Deploy Forces</div>
+        <div class="troop-move-unit-info" id="troop-move-unit-info"></div>
+        <div class="troop-move-slider-row">
+          <span class="troop-move-label">0%</span>
+          <input type="range" id="troop-move-slider" min="5" max="100" value="100" class="sp2-slider troop-slider" />
+          <span class="troop-move-label">100%</span>
+        </div>
+        <div class="troop-move-preview" id="troop-move-preview">Moving: 100% of forces</div>
+        <div class="troop-move-actions">
+          <button class="btn btn-attack" id="btn-troop-move-confirm">✅ Move Troops</button>
+          <button class="btn btn-denounce" id="btn-troop-move-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Tutorial Overlay ========== -->
+    <div id="tutorial-overlay" class="hidden">
+      <div class="tutorial-backdrop" id="tutorial-backdrop"></div>
+      <div class="tutorial-spotlight" id="tutorial-spotlight"></div>
+      <div class="tutorial-card" id="tutorial-card">
+        <div class="tutorial-step-indicator" id="tutorial-steps"></div>
+        <div class="tutorial-content" id="tutorial-content"></div>
+        <div class="tutorial-actions">
+          <button class="btn tutorial-skip" id="btn-tutorial-skip">Skip Tutorial</button>
+          <button class="btn tutorial-next" id="btn-tutorial-next">Next →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Loading Overlay ========== -->
+    <div class="loading-overlay" id="loading-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Loading world map data…</div>
+    </div>
+
+    <!-- Crash Recovery Overlay -->
+    <div class="crash-overlay" id="crash-overlay" style="display:none">
+      <div class="crash-card">
+        <div class="crash-icon">⚠️</div>
+        <h2>Game Error</h2>
+        <p class="crash-message" id="crash-message">An unexpected error occurred.</p>
+        <div class="crash-actions">
+          <button class="crash-btn crash-resume" id="crash-resume">▶ Resume</button>
+          <button class="crash-btn crash-reload" onclick="window.location.reload()">🔄 Reload</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App scripts — modular architecture (order: data → systems → presentation → app) -->
+  <script src="js/data/territory-data.js"></script>
+  <script src="js/data/military-data.js"></script>
+  <script src="js/data/cities-data.js"></script>
+  <script src="js/core/game-config.js"></script>
+  <script src="js/systems/game-clock.js"></script>
+  <script src="js/systems/unit-designer.js"></script>
+  <script src="js/systems/research-tree.js"></script>
+  <script src="js/systems/economy-system.js"></script>
+  <script src="js/systems/geopolitics.js"></script>
+  <script src="js/systems/units.js"></script>
+  <script src="js/systems/battle-resolver.js"></script>
+  <script src="js/systems/game-engine.js"></script>
+  <script src="js/presentation/game-map.js"></script>
+  <script src="js/presentation/game-ui.js"></script>
+  <script src="js/app/game-controller.js"></script>
+  <script src="js/app/main.js"></script>
+</body>
+</html>
