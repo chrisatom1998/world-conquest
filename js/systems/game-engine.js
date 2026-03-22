@@ -1070,19 +1070,22 @@ class GameEngine {
 
   setTaxRate(code, taxType, rate) {
     if (this.phase !== "playing") return false;
-    if (this.ownership[code] !== this.playerCode) return false;
+    const co = this._getCountryOwnership();
+    if ((co[code] || code) !== this.playerCode) return false;
     return this.economySystem.setTaxRate(code, taxType, rate);
   }
 
   setSpendingAllocation(code, spending) {
     if (this.phase !== "playing") return false;
-    if (this.ownership[code] !== this.playerCode) return false;
+    const co = this._getCountryOwnership();
+    if ((co[code] || code) !== this.playerCode) return false;
     return this.economySystem.setSpendingAllocation(code, spending);
   }
 
   toggleSectorNationalization(code, sector) {
     if (this.phase !== "playing") return false;
-    if (this.ownership[code] !== this.playerCode) return false;
+    const co = this._getCountryOwnership();
+    if ((co[code] || code) !== this.playerCode) return false;
     return this.economySystem.toggleSectorNationalization(code, sector);
   }
 
@@ -1224,7 +1227,7 @@ class GameEngine {
 
   toggleAlliance(targetCode) {
     if (this.phase !== "playing") return;
-    if (this.ownership[targetCode] === this.playerCode) return;
+    if (targetCode === this.playerCode) return;
 
     const key = this._allianceKey(this.playerCode, targetCode);
     if (this.alliances.has(key)) {

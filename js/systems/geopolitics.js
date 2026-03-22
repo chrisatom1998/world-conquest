@@ -550,13 +550,9 @@ class Geopolitics {
       return { success: false, message: "No nuclear weapons available!" };
     }
 
-    // Spend nukes
-    const attackerTerritories = Object.keys(ownership).filter(c => ownership[c] === attackerCode);
-    for (const t of attackerTerritories) {
-      if (forces[t]?.nuclearWeapons > 0) {
-        forces[t].nuclearWeapons--;
-        break;
-      }
+    // Spend nukes — forces are keyed by country code, not territory ID
+    if (attackerForces.nuclearWeapons > 0) {
+      attackerForces.nuclearWeapons--;
     }
 
     // Devastate target
@@ -587,31 +583,20 @@ class Geopolitics {
 
     // MAD: if target has nukes, retaliatory strike
     let retaliation = false;
-    const defenderOwner = ownership[targetCode];
-    if (defenderOwner) {
-      const defenderTerritories = Object.keys(ownership).filter(c => ownership[c] === defenderOwner);
-      let defenderHasNukes = false;
-      for (const t of defenderTerritories) {
-        if (forces[t]?.nuclearWeapons > 0) {
-          defenderHasNukes = true;
-          forces[t].nuclearWeapons--;
-          break;
-        }
-      }
+    const defenderForces = forces[targetCode];
+    if (defenderForces && (defenderForces.nuclearWeapons || 0) > 0) {
+      retaliation = true;
+      defenderForces.nuclearWeapons--;
 
-      if (defenderHasNukes && attackerTerritories.length > 0) {
-        retaliation = true;
-        const retaliationTarget = attackerTerritories[Math.floor(Math.random() * attackerTerritories.length)];
-        const rf = forces[retaliationTarget];
-        if (rf) {
-          rf.activeMilitary = Math.round(rf.activeMilitary * 0.35);
-          rf.tanks = Math.round(rf.tanks * 0.3);
-          rf.aircraft = Math.round(rf.aircraft * 0.35);
-        }
-        this.nuclearWasteland[retaliationTarget] = 8;
-        if (this.economy[retaliationTarget]) {
-          this.economy[retaliationTarget].stability = Math.max(5, this.economy[retaliationTarget].stability - 35);
-        }
+      // Retaliate against attacker's forces
+      if (attackerForces) {
+        attackerForces.activeMilitary = Math.round(attackerForces.activeMilitary * 0.35);
+        attackerForces.tanks = Math.round(attackerForces.tanks * 0.3);
+        attackerForces.aircraft = Math.round(attackerForces.aircraft * 0.35);
+      }
+      this.nuclearWasteland[attackerCode] = 8;
+      if (this.economy[attackerCode]) {
+        this.economy[attackerCode].stability = Math.max(5, this.economy[attackerCode].stability - 35);
       }
     }
 

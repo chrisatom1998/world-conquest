@@ -679,6 +679,477 @@ safe(()=>{
   ok(usaEco.gdp>100,"USA GDP reflects facility boost");
 },"Facility Economy Integration");
 
+// ── 28. Alliance System ──
+safe(()=>{
+  console.log("  Alliance System");
+  ok(!engine.isAllied("USA","GBR"),"USA/GBR not allied initially");
+  engine.toggleAlliance("GBR");
+  ok(engine.isAllied("USA","GBR"),"USA/GBR allied after toggle");
+  // Alliance should improve relations
+  ok(engine.geo.getRelation("USA","GBR")>0,"Relations improved with ally");
+
+  engine.toggleAlliance("GBR");
+  ok(!engine.isAllied("USA","GBR"),"Alliance dissolved after second toggle");
+
+  // Can't ally with self
+  engine.toggleAlliance("USA");
+  ok(!engine.isAllied("USA","USA"),"Can't ally with self");
+
+  // Re-form for later tests
+  engine.toggleAlliance("GBR");
+  ok(engine.isAllied("USA","GBR"),"Re-formed alliance");
+},"Alliance System");
+
+// ── 29. Diplomacy Actions ──
+safe(()=>{
+  console.log("  Diplomacy Actions");
+  // Improve relations
+  const r1=engine.diplomacyAction("improve","FRA");
+  ex(r1,"Improve returns result");
+  ok(r1.message.includes("Diplomatic"),"Improve has message");
+
+  // Denounce
+  const r2=engine.diplomacyAction("denounce","RUS");
+  ex(r2,"Denounce returns result");
+  ok(engine.geo.getRelation("USA","RUS")<0,"Relations decreased after denounce");
+
+  // Trade deal (need positive relations first)
+  engine.geo.modifyRelation("USA","FRA",50);
+  const r3=engine.diplomacyAction("trade","FRA");
+  ex(r3,"Trade returns result");
+  ok(r3.message.includes("Trade"),"Trade has message");
+
+  // Sanction
+  const r4=engine.diplomacyAction("sanction","PRK");
+  ex(r4,"Sanction returns result");
+  ok(r4.message.includes("sanction")||r4.message.includes("Sanction"),"Sanction has message");
+
+  // Invalid action
+  eq(engine.diplomacyAction("invalid","CHN"),null,"Invalid action returns null");
+
+  // War via diplomacy action
+  if(!engine.geo.isAtWar("USA","PRK")){
+    const r5=engine.diplomacyAction("war","PRK");
+    ex(r5,"War returns result");
+    ok(engine.geo.isAtWar("USA","PRK"),"Now at war with PRK");
+  }
+
+  // Peace via diplomacy action
+  const r6=engine.diplomacyAction("peace","PRK");
+  ex(r6,"Peace returns result");
+},"Diplomacy Actions");
+
+// ── 30. Government & Policies ──
+safe(()=>{
+  console.log("  Government & Policies");
+  const origGov=engine.geo.governmentTypes.USA;
+  ex(origGov,"USA has government type");
+
+  // Change government
+  const stabBefore=engine.geo.economy.USA.stability;
+  const r1=engine.geo.setGovernment("USA","authoritarian");
+  ok(r1.success,"Changed to authoritarian");
+  eq(engine.geo.governmentTypes.USA,"authoritarian","Government updated");
+  ok(engine.geo.economy.USA.stability<=stabBefore,"Stability decreased");
+
+  // Same government again
+  const r2=engine.geo.setGovernment("USA","authoritarian");
+  ok(!r2.success,"Already authoritarian");
+
+  // Invalid government
+  const r3=engine.geo.setGovernment("USA","fakegov");
+  ok(!r3.success,"Invalid gov type rejected");
+
+  // Restore democracy
+  engine.geo.setGovernment("USA","democracy");
+
+  // Toggle policy
+  const r4=engine.geo.togglePolicy("USA","conscription");
+  ok(r4.success,"Conscription toggled");
+  eq(r4.enabled,true,"Conscription enabled");
+  ok(r4.message.includes("enacted"),"Enacted message");
+
+  // Toggle off
+  const r5=engine.geo.togglePolicy("USA","conscription");
+  ok(r5.success,"Conscription toggled off");
+  eq(r5.enabled,false,"Conscription disabled");
+  ok(r5.message.includes("repealed"),"Repealed message");
+
+  // Invalid policy
+  const r6=engine.geo.togglePolicy("USA","fakepolicy");
+  ok(!r6.success,"Invalid policy rejected");
+
+  // Government modifiers
+  const mods=engine.geo.getGovernmentModifiers("USA");
+  ty(mods.gdpMod,"number","gdpMod is number");
+  ty(mods.stabilityMod,"number","stabilityMod is number");
+  ty(mods.militaryMod,"number","militaryMod is number");
+  ty(mods.taxMod,"number","taxMod is number");
+  ty(mods.conscription,"boolean","conscription is boolean");
+},"Government & Policies");
+
+// ── 31. Action Points ──
+safe(()=>{
+  console.log("  Action Points");
+  const co=engine._getCountryOwnership();
+  engine.geo.resetAP("USA",co);
+  ok(engine.geo.actionPoints>=3,"At least 3 AP");
+  eq(engine.geo.actionPoints,engine.geo.maxActionPoints,"AP equals max");
+
+  ok(engine.geo.spendAP(1),"Spend 1 AP");
+  eq(engine.geo.actionPoints,engine.geo.maxActionPoints-1,"AP decreased by 1");
+
+  ok(!engine.geo.spendAP(100),"Can't overspend AP");
+  eq(engine.geo.actionPoints,engine.geo.maxActionPoints-1,"AP unchanged after failed spend");
+},"Action Points");
+
+// ── 32. Trade & Sanctions Detail ──
+safe(()=>{
+  console.log("  Trade & Sanctions Detail");
+  // Ensure trade with FRA from earlier
+  const partners=engine.geo.getTradePartners("USA");
+  ar(partners,"getTradePartners returns array");
+
+  // Sanction queries
+  const against=engine.geo.getSanctionsAgainst("PRK");
+  ar(against,"getSanctionsAgainst returns array");
+
+  const by=engine.geo.getSanctionsBy("USA");
+  ar(by,"getSanctionsBy returns array");
+
+  // Cancel trade
+  engine.geo.modifyRelation("USA","FRA",50);
+  const cancel=engine.geo.proposeTrade("USA","FRA");
+  ex(cancel,"Cancel trade returns result");
+  ok(cancel.message.includes("cancelled")||cancel.message.includes("established"),"Trade toggled");
+
+  // Lift sanction
+  const lift=engine.geo.imposeSanction("USA","PRK");
+  ex(lift,"Lift sanction returns result");
+  ok(lift.message.includes("lifted")||lift.message.includes("imposed"),"Sanction toggled");
+},"Trade & Sanctions Detail");
+
+// ── 33. Nuke Launch ──
+safe(()=>{
+  console.log("  Nuke Launch");
+  // Give USA nukes
+  engine.forces.USA.nuclearWeapons=5;
+  if(!engine.geo.isAtWar("USA","CHN")) engine.geo.declareWar("USA","CHN");
+  const r=engine.launchNuke("CHN");
+  ex(r,"launchNuke returns result");
+  ty(r.success,"boolean","Has success");
+  if(r.success){
+    ok(engine.forces.USA.nuclearWeapons<5,"Nuke count decreased");
+    ok(r.message,"Has message");
+  }
+},"Nuke Launch");
+
+// ── 34. Missile Launch ──
+safe(()=>{
+  console.log("  Missile Launch");
+  // Deploy a unit and give missiles
+  const u=engine.unitManager.deployUnit("USA",38,-77,{troops:5000,tanks:100},"TestUnit");
+  engine.missileManager.addMissile("USA","cruise",5);
+
+  // Launch at enemy territory
+  const r=engine.launchMissile("cruise",35,100);
+  if(r){
+    ex(r,"launchMissile returns result");
+    ty(r.hit,"boolean","Has hit property");
+    ty(r.message,"string","Has message");
+  }
+
+  // Invalid missile type
+  eq(engine.launchMissile("fake_missile",35,100),null,"Invalid type returns null");
+},"Missile Launch");
+
+// ── 35. Unit Movement ──
+safe(()=>{
+  console.log("  Unit Movement");
+  const u=engine.unitManager.deployUnit("USA",40,-75,{troops:3000},"MoveTest");
+  const r=engine.movePlayerUnit(u.id,45,-80);
+  ex(r,"movePlayerUnit returns result");
+  eq(r.toLat,45,"Target lat");
+  eq(r.toLng,-80,"Target lng");
+  eq(u.lat,45,"Unit at target lat");
+  eq(u.lng,-80,"Unit at target lng");
+  eq(u.status,"idle","Status is idle");
+
+  // Can't move enemy unit
+  const e=engine.unitManager.deployUnit("CHN",30,100,{troops:1000},"Enemy");
+  eq(engine.movePlayerUnit(e.id,35,105),false,"Can't move enemy unit");
+},"Unit Movement");
+
+// ── 36. Split & Move ──
+safe(()=>{
+  console.log("  Split & Move");
+  const u=engine.unitManager.deployUnit("USA",42,-74,{troops:4000,tanks:200},"SplitTest");
+  const r=engine.splitAndMoveUnit(u.id,0.5,50,-80);
+  ex(r,"splitAndMoveUnit returns result");
+  ex(r.movedUnitId,"Has movedUnitId");
+  ok(r.movedUnitId!==u.id,"New unit has different id");
+  ok(u.composition.troops<=2100,"Original has ~half troops");
+
+  const newU=engine.unitManager.units.get(r.movedUnitId);
+  ex(newU,"New unit exists");
+  ok(newU.composition.troops>=1900,"New unit has ~half troops");
+  eq(newU.lat,50,"New unit at target lat");
+
+  // Full move (fraction=1)
+  const u2=engine.unitManager.deployUnit("USA",42,-74,{troops:1000},"FullMove");
+  const r2=engine.splitAndMoveUnit(u2.id,1.0,55,-85);
+  ex(r2,"Full move works");
+  eq(r2.movedUnitId,u2.id,"Same unit id for full move");
+  eq(u2.lat,55,"Unit moved to target");
+
+  // Invalid fraction
+  eq(engine.splitAndMoveUnit(u.id,0,50,-80),null,"Fraction 0 returns null");
+  eq(engine.splitAndMoveUnit(u.id,-0.5,50,-80),null,"Negative fraction returns null");
+},"Split & Move");
+
+// ── 37. Unit Designer Deep ──
+safe(()=>{
+  console.log("  Unit Designer Deep");
+  const ud=engine.unitDesigner;
+
+  // Advance tech
+  const lvl=ud.getMaxTechLevel("USA");
+  if(lvl<5){
+    ok(ud.advanceTech("USA"),"advanceTech returns true");
+    eq(ud.getMaxTechLevel("USA"),lvl+1,"Tech level increased");
+  }
+
+  // Can't exceed 5
+  for(let i=0;i<10;i++) ud.advanceTech("USA");
+  eq(ud.getMaxTechLevel("USA"),5,"Tech capped at 5");
+  ok(!ud.advanceTech("USA"),"advanceTech returns false at max");
+
+  // Create design
+  const d=ud.createDesign("USA","infantry","Test Infantry",3,2,2,1);
+  ex(d,"createDesign returns design");
+  eq(d.baseType,"infantry","Base type is infantry");
+  eq(d.owner,"USA","Owner is USA");
+  eq(d.weaponTech,3,"Weapon tech is 3");
+
+  // Invalid base type
+  eq(ud.createDesign("USA","fake","X",1,1,1,1),null,"Invalid type returns null");
+
+  // Design cost
+  const cost=ud.calcDesignCost(d);
+  ty(cost,"number","Cost is number");
+  ok(cost>0,"Cost > 0");
+  ok(cost<Infinity,"Cost is finite");
+
+  // Design stats
+  const stats=ud.getDesignStats(d);
+  ex(stats,"getDesignStats returns object");
+  ok(stats.attack>0,"Attack > 0");
+  ok(stats.defense>0,"Defense > 0");
+  ok(stats.combatPower>0,"Combat power > 0");
+
+  // Production cost
+  const pc=ud.getProductionCost(d.id,5);
+  ty(pc,"number","Production cost is number");
+  ok(pc>cost,"5 units cost more than 1");
+
+  // Invalid design
+  eq(ud.getProductionCost("nonexistent"),Infinity,"Invalid design = Infinity");
+
+  // Designs for owner
+  const designs=ud.getDesignsForOwner("USA");
+  ar(designs,"getDesignsForOwner returns array");
+  ok(designs.length>0,"USA has designs");
+  ok(designs.some(dd=>dd.id===d.id),"Our design is in the list");
+
+  // Available types
+  const types=ud.getAvailableTypes("USA");
+  ar(types,"getAvailableTypes returns array");
+  ok(types.length>0,"Has available types");
+},"Unit Designer Deep");
+
+// ── 38. Day/Week/Month Processing ──
+safe(()=>{
+  console.log("  Day/Week/Month Processing");
+
+  // Capture state before
+  const dayBefore=engine.clock.totalDays;
+  const eco=engine.economySystem.getEconomy("USA");
+  eco.budget=5000;
+
+  // Process a day
+  engine.clock._advanceDay();
+  engine._onDayChange(engine.clock.day,engine.clock.month,engine.clock.year);
+  eq(engine.clock.totalDays,dayBefore+1,"Day advanced");
+
+  // Process enough days to trigger a week
+  for(let i=0;i<7;i++){
+    engine.clock._advanceDay();
+  }
+  // Week change
+  engine._onWeekChange(engine.clock.totalDays);
+  ok(true,"Week processing didn't crash");
+
+  // Month change
+  engine._onMonthChange(engine.clock.month,engine.clock.year);
+  ok(eco.gdp>0,"Economy processed — GDP > 0");
+  ok(true,"Month processing didn't crash");
+},"Day/Week/Month Processing");
+
+// ── 39. AI Turns ──
+safe(()=>{
+  console.log("  AI Turns");
+  // Run AI directly
+  engine._runAI();
+  ok(true,"AI turn ran without crash");
+
+  // Run multiple rounds
+  for(let i=0;i<3;i++) engine._runAI();
+  ok(true,"Multiple AI rounds ran without crash");
+
+  // AI diplomacy
+  engine.geo.runAIDiplomacy("CHN",engine.forces,engine._getCountryOwnership());
+  ok(true,"AI diplomacy ran without crash");
+},"AI Turns");
+
+// ── 40. Victory Check ──
+safe(()=>{
+  console.log("  Victory Check");
+  // Should not trigger victory with normal state
+  engine._checkVictory();
+  eq(engine.phase,"playing","Still playing after victory check");
+
+  // Check domination threshold
+  ty(engine._checkVictory,"function","_checkVictory exists");
+},"Victory Check");
+
+// ── 41. Find Territory At ──
+safe(()=>{
+  console.log("  Find Territory At");
+  const t=engine.findTerritoryAt(37.7749,-122.4194); // San Francisco
+  if(t){
+    ty(t,"string","Returns territory ID string");
+    ok(t.startsWith("USA"),"Found US territory near SF");
+  }
+  // Remote location — should still find a player territory or null
+  const t2=engine.findTerritoryAt(0,0);
+  ok(t2===null||typeof t2==="string","Returns null or string ID");
+},"Find Territory At");
+
+// ── 42. Economy Controls ──
+safe(()=>{
+  console.log("  Economy Controls");
+  // Tax rate via engine (validates ownership)
+  // USA-CA is owned by USA (the player)
+  const eco=engine.economySystem.getEconomy("USA");
+  ok(engine.setTaxRate("USA","income",30)!==false,"setTaxRate through engine");
+
+  // Spending allocation
+  ok(engine.setSpendingAllocation("USA",{
+    military:25,education:20,healthcare:20,infrastructure:20,research:15
+  })!==false,"setSpendingAllocation through engine");
+
+  // Sector nationalization
+  const r=engine.toggleSectorNationalization("USA","agriculture");
+  ok(r===true||r===false,"Nationalization returns boolean");
+},"Economy Controls");
+
+// ── 43. Geopolitics Economy Processing ──
+safe(()=>{
+  console.log("  Geopolitics Economy Processing");
+  const co=engine._getCountryOwnership();
+
+  // Record GDP before
+  const gdpBefore=engine.geo.economy.USA?.gdp||0;
+
+  // Process economy
+  engine.geo.processEconomy(engine.forces,co);
+
+  // GDP should be recalculated
+  ok(engine.geo.economy.USA.gdp>0,"USA GDP positive after geo processing");
+
+  // Get faction summary
+  const summary=engine.geo.getFactionEconomySummary("USA",co);
+  ex(summary,"getFactionEconomySummary returns result");
+  ok(summary.gdp>0,"Summary GDP > 0");
+},"Geopolitics Economy Processing");
+
+// ── 44. Unit Auto-Deploy ──
+safe(()=>{
+  console.log("  Unit Auto-Deploy");
+  const unitsBefore=engine.unitManager.getUnitsForOwner("USA").length;
+  engine.unitManager.autoDeploy(engine.forces,engine.ownership);
+  const unitsAfter=engine.unitManager.getUnitsForOwner("USA").length;
+  ok(unitsAfter>=unitsBefore,"Units same or more after autoDeploy");
+  ok(true,"autoDeploy didn't crash");
+},"Unit Auto-Deploy");
+
+// ── 45. Clock Toggle Pause ──
+safe(()=>{
+  console.log("  Clock Toggle Pause");
+  const c=new GameClock();
+  eq(c.speedIndex,0,"Starts paused");
+  c.togglePause();
+  ok(c.speedIndex>0,"Unpaused after toggle");
+  const si=c.speedIndex;
+  c.togglePause();
+  eq(c.speedIndex,0,"Paused again");
+  c.togglePause();
+  eq(c.speedIndex,si,"Restored to previous speed");
+},"Clock Toggle Pause");
+
+// ── 46. Research Progress ──
+safe(()=>{
+  console.log("  Research Progress");
+  const rt=engine.researchTree;
+  // getProgress returns active research or null
+  const prog=rt.getProgress("USA");
+  // May be null if no active research, or an object with research state
+  ok(prog===null||typeof prog==="object","getProgress returns null or object");
+
+  // Start research and check progress
+  const avail=rt.getAvailableNodes("USA");
+  if(avail.length>0&&!rt.activeResearch["USA"]){
+    rt.startResearch("USA",avail[0].branch,avail[0].id,engine.clock.totalDays);
+    const prog2=rt.getProgress("USA");
+    ex(prog2,"Active research has progress");
+    ex(prog2.nodeId,"Progress has nodeId");
+  }
+
+  // Check overall research state — returns branch map with Sets of node IDs
+  const state=rt.getResearchState("USA");
+  ex(state,"getResearchState returns object");
+  ok(Object.keys(state).length>0,"USA has research branches");
+  // Each branch has a nodes Set
+  const firstBranch=Object.values(state)[0];
+  ex(firstBranch.nodes,"Branch has nodes Set");
+  ok(firstBranch.nodes.size>0,"Branch has completed nodes");
+},"Research Progress");
+
+// ── 47. Co-belligerence with Alliances ──
+safe(()=>{
+  console.log("  Co-belligerence Extended");
+  // Form alliance with GBR
+  if(!engine.isAllied("USA","GBR")) engine.toggleAlliance("GBR");
+  ok(engine.isAllied("USA","GBR"),"USA/GBR allied");
+
+  // Declare war on IRN and check co-belligerence
+  if(!engine.geo.isAtWar("USA","IRN")) engine.geo.declareWar("USA","IRN");
+  engine.processAllianceCoBelligerence("USA","IRN");
+  ok(true,"Co-belligerence processed without crash");
+},"Co-belligerence Extended");
+
+// ── 48. Economic History Snapshots ──
+safe(()=>{
+  console.log("  Economic History Snapshots");
+  engine._recordEconomicSnapshot();
+  engine._recordEconomicSnapshot();
+  engine._recordEconomicSnapshot();
+  const hist=engine.getEconomicHistory("USA");
+  ok(hist.length>=3,"At least 3 history snapshots");
+  ex(hist[0].gdp,"Snapshot has gdp");
+  ex(hist[0].budget,"Snapshot has budget");
+},"Economic History Snapshots");
+
 // ── Print Results ──
 console.log("");
 if(fails.length>0) for(const f of fails) console.log(f);
