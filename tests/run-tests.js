@@ -372,6 +372,80 @@ safe(()=>{
   eq(engine.fortify("CHN"),null,"Can't fortify enemy territory");
 },"Engine Fortification");
 
+// ── 13b. Production Countdown ──
+safe(()=>{
+  console.log("  Production Countdown");
+  const eco=engine.economySystem.getEconomy("USA");
+  eco.budget=5000;
+  const startDay=engine.clock.totalDays;
+
+  // Queue a troop production
+  const q=engine.queueProduction("USA","troops");
+  ex(q,"Queue troops");
+  const order=engine.productionQueue.find(o=>o.type==="troops"&&o.startDay===startDay);
+  ex(order,"Found queued order");
+  eq(order.durationDays,7,"Troops take 7 days");
+  eq(order.startDay,startDay,"startDay matches clock");
+
+  // Advance 3 days — should still be in queue
+  for(let i=0;i<3;i++) engine.clock._advanceDay();
+  engine._processProductionQueue();
+  ok(engine.productionQueue.some(o=>o===order),"Still in queue after 3 days");
+
+  // Check countdown math
+  const elapsed=engine.clock.totalDays-order.startDay;
+  eq(elapsed,3,"3 days elapsed");
+  const daysLeft=Math.max(0,Math.ceil(order.durationDays-elapsed));
+  eq(daysLeft,4,"4 days remaining");
+
+  // Advance 4 more days — should complete
+  for(let i=0;i<4;i++) engine.clock._advanceDay();
+  engine._processProductionQueue();
+  ok(!engine.productionQueue.some(o=>o===order),"Removed from queue after 7 days");
+
+  // Fortify countdown
+  eco.budget=5000;
+  const ftid=engine.getPlayerTerritories()[2];
+  engine.fortify(ftid);
+  const fortOrder=engine.fortifyQueue.find(o=>o.code===ftid);
+  ex(fortOrder,"Fortify order exists");
+  eq(fortOrder.durationDays,14,"Fortify takes 14 days");
+
+  // Advance 10 days — still in queue
+  for(let i=0;i<10;i++) engine.clock._advanceDay();
+  engine._processFortificationQueue();
+  ok(engine.fortifyQueue.some(o=>o===fortOrder),"Fortify still in queue after 10 days");
+  const fortRemain=Math.max(0,Math.ceil(fortOrder.durationDays-(engine.clock.totalDays-fortOrder.startDay)));
+  eq(fortRemain,4,"4 days remaining on fortify");
+
+  // Complete it
+  for(let i=0;i<4;i++) engine.clock._advanceDay();
+  engine._processFortificationQueue();
+  ok(!engine.fortifyQueue.some(o=>o===fortOrder),"Fortify removed after 14 days");
+
+  // Facility countdown
+  eco.budget=5000;
+  const facTid=engine.getPlayerTerritories()[3];
+  engine.buildFacility(facTid,"mine");
+  const facOrder=engine.facilityQueue.find(o=>o.territoryId===facTid);
+  ex(facOrder,"Facility order exists");
+  eq(facOrder.durationDays,60,"Facility takes 60 days");
+  const facStart=facOrder.startDay;
+
+  // Advance 30 days
+  for(let i=0;i<30;i++) engine.clock._advanceDay();
+  engine._processFacilityQueue(engine.clock.totalDays);
+  ok(engine.facilityQueue.some(o=>o===facOrder),"Facility still in queue after 30 days");
+  const facRemain=Math.max(0,Math.ceil(facOrder.durationDays-(engine.clock.totalDays-facStart)));
+  eq(facRemain,30,"30 days remaining on facility");
+
+  // Complete it
+  for(let i=0;i<30;i++) engine.clock._advanceDay();
+  engine._processFacilityQueue(engine.clock.totalDays);
+  ok(!engine.facilityQueue.some(o=>o===facOrder),"Facility removed after 60 days");
+  ok((engine.facilities[facTid]?.mine||0)>0,"Mine built in territory");
+},"Production Countdown");
+
 // ── 14. Engine Espionage ──
 safe(()=>{
   console.log("  Engine Espionage");

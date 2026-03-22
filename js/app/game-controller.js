@@ -440,7 +440,12 @@ class GameController {
       this.engine.ownership,
       this.engine.playerCode
     );
-    this.ui.updateProductionQueue(this.engine.productionQueue, this.engine.clock);
+    this.ui.updateProductionQueue(
+      this.engine.productionQueue,
+      this.engine.fortifyQueue,
+      this.engine.facilityQueue,
+      this.engine.clock
+    );
     this._updateSpeedButtons();
 
     if (this.ui.els.btnFortify) {
