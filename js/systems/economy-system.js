@@ -198,20 +198,20 @@ class EconomySystem {
    * @param {Object} geopolitics - Geopolitics instance
    * @param {Object} [facilities] - Territory facilities map from GameEngine
    */
-  processTurn(forces, ownership, geopolitics, facilities) {
+  processTurn(forces, ownership, geopolitics, facilities, territoryOwnership) {
     for (const [code, eco] of this.economies) {
-      this._processCountryTurn(code, eco, forces, ownership, geopolitics, facilities);
+      this._processCountryTurn(code, eco, forces, ownership, geopolitics, facilities, territoryOwnership);
     }
   }
 
-  _processCountryTurn(code, eco, forces, ownership, geopolitics, facilities) {
+  _processCountryTurn(code, eco, forces, ownership, geopolitics, facilities, territoryOwnership) {
     const f = forces[code];
     if (!f) return;
 
     // ── Aggregate facilities across all territories this country owns ──
     let totalFactories = 0, totalMines = 0, totalFarms = 0, totalOil = 0, totalMilBases = 0;
-    if (facilities) {
-      for (const [tid, owner] of Object.entries(ownership)) {
+    if (facilities && territoryOwnership) {
+      for (const [tid, owner] of Object.entries(territoryOwnership)) {
         if (owner === code && facilities[tid]) {
           const fac = facilities[tid];
           totalFactories += fac.factory || 0;
@@ -268,10 +268,10 @@ class EconomySystem {
 
       // War penalty
       let warCount = 0;
+      const warOwner = ownership[code] || code;
       for (const w of geopolitics.wars || []) {
         const [a, b] = w.split("-");
-        const owner2 = ownership[code] || code;
-        if (a === owner2 || b === owner2) warCount++;
+        if (a === warOwner || b === warOwner) warCount++;
       }
       gdpMultiplier -= warCount * 0.12;
 

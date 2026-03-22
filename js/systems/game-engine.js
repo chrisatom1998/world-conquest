@@ -248,7 +248,7 @@ class GameEngine {
 
     try {
       // Process SP2 economy
-      this.economySystem.processTurn(this.forces, this._getCountryOwnership(), this.geo, this.facilities);
+      this.economySystem.processTurn(this.forces, this._getCountryOwnership(), this.geo, this.facilities, this.ownership);
       this._syncEconomyToGeo();
 
       // Tech advancement check

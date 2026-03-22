@@ -495,7 +495,7 @@ function calcStrength(data) {
     (data.aircraft || 0) * 100 +
     (data.fighters || 0) * 200 +
     (data.helicopters || 0) * 80 +
-    ((data.navalVessels || data.navelVessels || 0)) * 300 +
+    (data.navalVessels || 0) * 300 +
     (data.submarines || 0) * 1500 +
     (data.aircraftCarriers || 0) * 50000 +
     (data.nuclearWeapons || 0) * 5000 +

@@ -271,9 +271,10 @@ class Geopolitics {
 
       // War penalty: -15% GDP per active war
       let warCount = 0;
+      const owner = ownership[code] || code;
       for (const w of this.wars) {
         const [a, b] = w.split("-");
-        if (a === ownership[code] || b === ownership[code]) warCount++;
+        if (a === owner || b === owner) warCount++;
       }
       gdpMod -= warCount * 0.15;
       gdpMod = Math.max(gdpMod, 0.15);

@@ -174,7 +174,7 @@ class BattleResolver {
 
     // Apply losses to units — use each side's own loss calculation
     this._applyLossesToUnit(attackerUnit, attackerWins ? attackerLossPct * 0.3 : attackerLossPct);
-    this._applyLossesToUnit(defenderUnit, attackerWins ? defenderLossPct : attackerLossPct * 0.4);
+    this._applyLossesToUnit(defenderUnit, attackerWins ? defenderLossPct : defenderLossPct * 0.4);
 
     return {
       attackerWins,
