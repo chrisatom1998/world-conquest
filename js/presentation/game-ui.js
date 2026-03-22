@@ -193,6 +193,8 @@ class GameUI {
     let selectedCode = null;
     const countries = Object.entries(MILITARY_DATA)
       .sort((a, b) => a[1].powerIndex - b[1].powerIndex);
+    // Pre-compute rank index to avoid O(n^2) findIndex calls
+    const rankMap = new Map(countries.map(([code], i) => [code, i + 1]));
 
     const renderList = (filter = "") => {
       if (!this.els.countryList) return;
@@ -212,7 +214,7 @@ class GameUI {
             <div class="co-name">${data.name}</div>
             <div class="co-stats">${formatNumber(data.activeMilitary)} troops · $${data.gdp || 0}B GDP · ${data.nuclearWeapons > 0 ? "☢️" : ""}</div>
           </div>
-          <span class="co-power">#${countries.findIndex(c => c[0] === code) + 1}</span>
+          <span class="co-power">#${rankMap.get(code) || "?"}</span>
         `;
 
         el.addEventListener("click", () => {
@@ -246,20 +248,35 @@ class GameUI {
   /* =========== HUD (Real-Time) =========== */
 
   updateHUD(territories, powerPercent, engine) {
-    // Date display
-    if (this.els.hudDate && engine?.clock) {
-      this.els.hudDate.textContent = engine.clock.dateString;
-    }
+    // Dirty-check to avoid unnecessary DOM writes on every tick
+    const dateStr = engine?.clock?.dateString || "";
+    const powerStr = powerPercent.toFixed(1) + "%";
+    const powerWidth = Math.min(powerPercent, 100) + "%";
 
-    if (this.els.hudTerritories) this.els.hudTerritories.textContent = territories;
-    if (this.els.hudPower) this.els.hudPower.textContent = powerPercent.toFixed(1) + "%";
-    if (this.els.powerBarFill) this.els.powerBarFill.style.width = Math.min(powerPercent, 100) + "%";
+    if (this.els.hudDate && this.els.hudDate.textContent !== dateStr) {
+      this.els.hudDate.textContent = dateStr;
+    }
+    if (this.els.hudTerritories && this.els.hudTerritories.textContent !== String(territories)) {
+      this.els.hudTerritories.textContent = territories;
+    }
+    if (this.els.hudPower && this.els.hudPower.textContent !== powerStr) {
+      this.els.hudPower.textContent = powerStr;
+    }
+    if (this.els.powerBarFill && this.els.powerBarFill.style.width !== powerWidth) {
+      this.els.powerBarFill.style.width = powerWidth;
+    }
 
     if (engine?.economySystem) {
       const summary = engine.economySystem.getFactionSummary(engine.playerCode, engine._getCountryOwnership());
-      if (this.els.hudGdp) this.els.hudGdp.textContent = `$${summary.gdp}B`;
+      const gdpStr = `$${summary.gdp}B`;
+      const budgetStr = `$${summary.budget}B`;
+      if (this.els.hudGdp && this.els.hudGdp.textContent !== gdpStr) {
+        this.els.hudGdp.textContent = gdpStr;
+      }
       if (this.els.hudBudget) {
-        this.els.hudBudget.textContent = `$${summary.budget}B`;
+        if (this.els.hudBudget.textContent !== budgetStr) {
+          this.els.hudBudget.textContent = budgetStr;
+        }
         this.els.hudBudget.classList.toggle("negative", summary.budget < 0);
       }
     }
@@ -309,10 +326,15 @@ class GameUI {
     // SR2030 Facilities
     const facilities = engine.facilities[territoryId] || { factory: 0, mine: 0, farm: 0, oil: 0, military: 0 };
     const queuedFacility = engine.facilityQueue.find(q => q.territoryId === territoryId);
+    const queuedFortify = engine.fortifyQueue.find(q => q.code === territoryId);
     let queueStatus = "";
     if (queuedFacility) {
-      const remainingDays = queuedFacility.durationDays - (engine.clock.totalDays - queuedFacility.startDay);
-      queueStatus = `<div class="facility-queue-alert">🏗️ Building ${queuedFacility.type} (${remainingDays} days left)</div>`;
+      const remainingDays = Math.max(0, Math.ceil(queuedFacility.durationDays - (engine.clock.totalDays - queuedFacility.startDay)));
+      queueStatus += `<div class="facility-queue-alert">🏗️ Building ${queuedFacility.type} (${remainingDays}d remaining)</div>`;
+    }
+    if (queuedFortify) {
+      const remainingDays = Math.max(0, Math.ceil(queuedFortify.durationDays - (engine.clock.totalDays - queuedFortify.startDay)));
+      queueStatus += `<div class="facility-queue-alert">🏰 Fortifying to Lv${queuedFortify.targetLevel} (${remainingDays}d remaining)</div>`;
     }
 
     const html = `
@@ -662,7 +684,7 @@ class GameUI {
         for (const order of activeProduction) {
           const elapsed = engine.clock.totalDays - order.startDay;
           const pct = Math.min(100, Math.round((elapsed / order.durationDays) * 100));
-          const daysLeft = Math.max(0, order.durationDays - elapsed);
+          const daysLeft = Math.max(0, Math.ceil(order.durationDays - elapsed));
           queueHtml += `
             <div class="ud-queue-item">
               <div class="ud-queue-label">${order.label}</div>
@@ -898,18 +920,18 @@ class GameUI {
       }
       html += `</div></div>`;
 
-      // National Facility Summary
+      // National Facility Summary — use cached territory list for O(territories) instead of O(all)
       let totalFac = 0, totalMin = 0, totalFrm = 0, totalOilFac = 0, totalMil = 0;
       if (engine.facilities) {
-        for (const [tid, owner2] of Object.entries(engine.ownership)) {
-          if (owner2 === code && engine.facilities[tid]) {
-            const fac = engine.facilities[tid];
-            totalFac += fac.factory || 0;
-            totalMin += fac.mine || 0;
-            totalFrm += fac.farm || 0;
-            totalOilFac += fac.oil || 0;
-            totalMil += fac.military || 0;
-          }
+        const ownedTerritories = engine.getFactionsOwnerTerritories(code);
+        for (const tid of ownedTerritories) {
+          const fac = engine.facilities[tid];
+          if (!fac) continue;
+          totalFac += fac.factory || 0;
+          totalMin += fac.mine || 0;
+          totalFrm += fac.farm || 0;
+          totalOilFac += fac.oil || 0;
+          totalMil += fac.military || 0;
         }
       }
       const totalAll = totalFac + totalMin + totalFrm + totalOilFac + totalMil;
@@ -1193,10 +1215,10 @@ class GameUI {
   }
 
   _renderRelationsOverview(playerCode, ownership, engine) {
-    const factions = new Set(Object.values(ownership));
+    // Use MILITARY_DATA keys instead of scanning all ownership values
     const items = [];
-    for (const f of factions) {
-      if (f === playerCode || !MILITARY_DATA[f]) continue;
+    for (const f of Object.keys(MILITARY_DATA)) {
+      if (f === playerCode) continue;
       const rel = engine.geo.getRelation(playerCode, f);
       const atWar = engine.geo.isAtWar(playerCode, f);
       items.push({ code: f, rel, atWar });
@@ -1693,7 +1715,11 @@ class GameUI {
     el.className = `log-entry ${entry.type}`;
     el.innerHTML = `<span class="log-turn">[T${entry.turn}]</span> ${entry.message}`;
     this.els.logBody.prepend(el);
-    while (this.els.logBody.children.length > 60) this.els.logBody.removeChild(this.els.logBody.lastChild);
+    // Batch-remove excess entries to avoid per-element reflow
+    const children = this.els.logBody.children;
+    if (children.length > 60) {
+      while (children.length > 50) this.els.logBody.removeChild(children[children.length - 1]);
+    }
   }
 
   /* =========== Victory Screen =========== */
@@ -1878,33 +1904,88 @@ class GameUI {
 
   /* =========== Enhancement #9: Production Queue Widget =========== */
 
-  updateProductionQueue(queue, clock) {
+  updateProductionQueue(prodQueue, fortifyQueue, facilityQueue, clock) {
     if (!this.els.productionQueue || !this.els.pqBody) return;
 
-    if (!queue || queue.length === 0) {
+    // Merge all queues into a unified display list
+    const allItems = [];
+    if (prodQueue) {
+      for (const order of prodQueue) {
+        allItems.push({
+          icon: order.category === "missile" ? "🚀" : "🎖️",
+          label: order.label || order.type,
+          startDay: order.startDay,
+          durationDays: order.durationDays,
+          _key: `prod-${order.type}-${order.startDay}`
+        });
+      }
+    }
+    if (fortifyQueue) {
+      for (const order of fortifyQueue) {
+        const tName = typeof getTerritoryById === "function"
+          ? (getTerritoryById(order.code)?.name || order.code)
+          : order.code;
+        allItems.push({
+          icon: "🏰",
+          label: `Fortify ${tName} Lv${order.targetLevel}`,
+          startDay: order.startDay,
+          durationDays: order.durationDays,
+          _key: `fort-${order.code}-${order.startDay}`
+        });
+      }
+    }
+    if (facilityQueue) {
+      for (const task of facilityQueue) {
+        const tName = typeof getTerritoryById === "function"
+          ? (getTerritoryById(task.territoryId)?.name || task.territoryId)
+          : task.territoryId;
+        allItems.push({
+          icon: "🏗️",
+          label: `${task.type} in ${tName}`,
+          startDay: task.startDay,
+          durationDays: task.durationDays,
+          _key: `fac-${task.territoryId}-${task.startDay}`
+        });
+      }
+    }
+
+    if (allItems.length === 0) {
       this.els.productionQueue.classList.add("hidden");
       return;
     }
 
     this.els.productionQueue.classList.remove("hidden");
     const totalDays = clock?.totalDays || 0;
+    const items = allItems.slice(0, 8);
 
-    this.els.pqBody.innerHTML = queue.slice(0, 6).map(order => {
-      const elapsed = totalDays - order.startDay;
-      const pct = Math.min(100, Math.round((elapsed / order.durationDays) * 100));
-      const daysLeft = Math.max(0, order.durationDays - elapsed);
-      const icon = order.category === "missile" ? "🚀" : "🎖️";
-      return `
+    // Build a key string to detect when items change (avoids innerHTML rebuild every tick)
+    const newKey = items.map(i => i._key).join("|");
+    if (this._pqLastKey !== newKey) {
+      this._pqLastKey = newKey;
+      this.els.pqBody.innerHTML = items.map(item => `
         <div class="pq-item">
           <div class="pq-item-info">
-            <span class="pq-item-icon">${icon}</span>
-            <span class="pq-item-name">${order.label || order.type}</span>
-            <span class="pq-item-time">${daysLeft}d</span>
+            <span class="pq-item-icon">${item.icon}</span>
+            <span class="pq-item-name">${item.label}</span>
+            <span class="pq-item-time"></span>
           </div>
-          <div class="pq-item-bar"><div class="pq-item-fill" style="width:${pct}%"></div></div>
+          <div class="pq-item-bar"><div class="pq-item-fill"></div></div>
         </div>
-      `;
-    }).join("");
+      `).join("");
+    }
+
+    // Update progress values in-place
+    for (let i = 0; i < items.length && i < this.els.pqBody.children.length; i++) {
+      const item = items[i];
+      const el = this.els.pqBody.children[i];
+      const elapsed = totalDays - item.startDay;
+      const pct = Math.min(100, Math.round((elapsed / item.durationDays) * 100));
+      const daysLeft = Math.max(0, Math.ceil(item.durationDays - elapsed));
+      const timeEl = el.querySelector(".pq-item-time");
+      const fillEl = el.querySelector(".pq-item-fill");
+      if (timeEl) timeEl.textContent = `${daysLeft}d`;
+      if (fillEl) fillEl.style.width = `${pct}%`;
+    }
   }
 
   /* =========== Enhancement #1: Command Selector Modal =========== */

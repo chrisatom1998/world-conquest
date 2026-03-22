@@ -248,7 +248,7 @@ class GameEngine {
 
     try {
       // Process SP2 economy
-      this.economySystem.processTurn(this.forces, this._getCountryOwnership(), this.geo, this.facilities);
+      this.economySystem.processTurn(this.forces, this._getCountryOwnership(), this.geo, this.facilities, this.ownership);
       this._syncEconomyToGeo();
 
       // Tech advancement check
@@ -583,11 +583,11 @@ class GameEngine {
   /* =========== Territory & Power =========== */
 
   getPlayerTerritories() {
-    return Object.keys(this.ownership).filter(t => this.ownership[t] === this.playerCode);
+    return this._factionTerritoryCache[this.playerCode] || [];
   }
 
   getFactionsOwnerTerritories(factionCode) {
-    return Object.keys(this.ownership).filter(t => this.ownership[t] === factionCode);
+    return this._factionTerritoryCache[factionCode] || [];
   }
 
   /** Get the country code that a territory belongs to */
@@ -653,6 +653,7 @@ class GameEngine {
   /** Rebuild the faction territory cache */
   _rebuildFactionCache() {
     this._factionTerritoryCache = {};
+    this._countryOwnershipCache = null; // Invalidate country ownership cache
     for (const [tid, owner] of Object.entries(this.ownership)) {
       if (!this._factionTerritoryCache[owner]) this._factionTerritoryCache[owner] = [];
       this._factionTerritoryCache[owner].push(tid);
@@ -1069,19 +1070,22 @@ class GameEngine {
 
   setTaxRate(code, taxType, rate) {
     if (this.phase !== "playing") return false;
-    if (this.ownership[code] !== this.playerCode) return false;
+    const co = this._getCountryOwnership();
+    if ((co[code] || code) !== this.playerCode) return false;
     return this.economySystem.setTaxRate(code, taxType, rate);
   }
 
   setSpendingAllocation(code, spending) {
     if (this.phase !== "playing") return false;
-    if (this.ownership[code] !== this.playerCode) return false;
+    const co = this._getCountryOwnership();
+    if ((co[code] || code) !== this.playerCode) return false;
     return this.economySystem.setSpendingAllocation(code, spending);
   }
 
   toggleSectorNationalization(code, sector) {
     if (this.phase !== "playing") return false;
-    if (this.ownership[code] !== this.playerCode) return false;
+    const co = this._getCountryOwnership();
+    if ((co[code] || code) !== this.playerCode) return false;
     return this.economySystem.toggleSectorNationalization(code, sector);
   }
 
@@ -1223,7 +1227,7 @@ class GameEngine {
 
   toggleAlliance(targetCode) {
     if (this.phase !== "playing") return;
-    if (this.ownership[targetCode] === this.playerCode) return;
+    if (targetCode === this.playerCode) return;
 
     const key = this._allianceKey(this.playerCode, targetCode);
     if (this.alliances.has(key)) {
@@ -1474,11 +1478,12 @@ class GameEngine {
     }
   }
 
-  /** Get a country-level ownership map for backward compatibility with geopolitics */
+  /** Get a country-level ownership map for backward compatibility with geopolitics.
+   *  Result is cached and invalidated when _rebuildFactionCache is called. */
   _getCountryOwnership() {
+    if (this._countryOwnershipCache) return this._countryOwnershipCache;
     const countryOwnership = {};
     for (const code of Object.keys(MILITARY_DATA)) {
-      // A country is "owned" by whoever holds the majority of its territories
       const territories = TERRITORY_DATA[code];
       if (!territories) {
         countryOwnership[code] = this.ownership[code] || code;
@@ -1495,6 +1500,7 @@ class GameEngine {
       }
       countryOwnership[code] = maxOwner;
     }
+    this._countryOwnershipCache = countryOwnership;
     return countryOwnership;
   }
 
