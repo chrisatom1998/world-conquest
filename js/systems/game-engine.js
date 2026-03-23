@@ -1399,15 +1399,19 @@ class GameEngine {
         this._addLog("attack", `🏴 ${aiName} has fully conquered ${MILITARY_DATA[defenderCountry]?.name || defenderCountry}!`);
       }
     } else {
+      // Defender takes lighter losses when repelling
+      this._applyLossesCountry(defenderCountry, 0.03 + Math.random() * 0.05);
       this._addLog("defense", `${territoryName} repelled an attack from ${aiName}.`);
     }
 
-    // Apply losses to AI too
+    // Apply losses to AI too — spread evenly across all owned countries
     const aiCountries = new Set(Object.keys(this.ownership).filter(t => this.ownership[t] === aiCode).map(t => this.getTerritoryCountryCode(t)));
-    for (const cc of aiCountries) {
-      if (this.forces[cc]) {
-        this._applyLossesCountry(cc, (0.03 + Math.random() * 0.05) / aiCountries.size);
-        break;
+    if (aiCountries.size > 0) {
+      const aiLossFactor = (0.03 + Math.random() * 0.05) / aiCountries.size;
+      for (const cc of aiCountries) {
+        if (this.forces[cc]) {
+          this._applyLossesCountry(cc, aiLossFactor);
+        }
       }
     }
   }
@@ -1473,8 +1477,11 @@ class GameEngine {
     for (const [tid, owner] of Object.entries(this.ownership)) {
       if (owner === factionCode) countries.add(this.getTerritoryCountryCode(tid));
     }
+    if (countries.size === 0) return;
+    // Distribute losses evenly across owned countries so total loss is constant
+    const perCountryFactor = factor / countries.size;
     for (const cc of countries) {
-      this._applyLossesCountry(cc, factor * 0.5);
+      this._applyLossesCountry(cc, perCountryFactor);
     }
   }
 

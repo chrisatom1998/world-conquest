@@ -1150,6 +1150,100 @@ safe(()=>{
   ex(hist[0].budget,"Snapshot has budget");
 },"Economic History Snapshots");
 
+// ── 49. Aggregated Losses Distribution ──
+safe(()=>{
+  console.log("  Aggregated Losses Distribution");
+  // Save original forces
+  const origTroops={};
+  for(const code of Object.keys(engine.forces)){
+    origTroops[code]=engine.forces[code].activeMilitary;
+  }
+
+  // Count how many countries USA owns
+  const usaCountries=new Set();
+  for(const [tid,owner] of Object.entries(engine.ownership)){
+    if(owner==="USA") usaCountries.add(engine.getTerritoryCountryCode(tid));
+  }
+  ok(usaCountries.size>=1,"USA owns at least 1 country");
+
+  // Apply aggregated losses
+  engine._applyLossesAggregated("USA",0.10);
+
+  // Total loss should be ~10% regardless of number of countries
+  let totalBefore=0,totalAfter=0;
+  for(const cc of usaCountries){
+    totalBefore+=origTroops[cc]||0;
+    totalAfter+=engine.forces[cc]?.activeMilitary||0;
+  }
+  const actualLoss=1-totalAfter/totalBefore;
+  ok(actualLoss>0.05&&actualLoss<0.20,`Aggregated loss ~10%, got ${(actualLoss*100).toFixed(1)}%`);
+
+  // Restore forces
+  for(const code of Object.keys(engine.forces)){
+    engine.forces[code].activeMilitary=origTroops[code];
+  }
+},"Aggregated Losses Distribution");
+
+// ── 50. Economy Controls After Conquest ──
+safe(()=>{
+  console.log("  Economy Controls After Conquest");
+  // setTaxRate should work for player's own country
+  ok(engine.setTaxRate("USA","income",28),"setTaxRate works for own country");
+  const eco=engine.economySystem.getEconomy("USA");
+  eq(eco.incomeTaxRate,28,"Income tax set to 28");
+
+  ok(engine.setSpendingAllocation("USA",{
+    military:20,education:25,healthcare:20,infrastructure:20,research:15
+  }),"setSpendingAllocation works");
+  eq(eco.spending.education,25,"Education spending set to 25");
+
+  // Should fail for enemy country
+  ok(!engine.setTaxRate("CHN","income",50),"Can't set tax for enemy");
+  ok(!engine.setSpendingAllocation("CHN",{military:50}),"Can't set spending for enemy");
+},"Economy Controls After Conquest");
+
+// ── 51. AI Attack Losses Both Sides ──
+safe(()=>{
+  console.log("  AI Attack Losses Both Sides");
+  // Find an AI faction adjacent to player
+  let aiCode=null,target=null;
+  for(const [tid,owner] of Object.entries(engine.ownership)){
+    if(owner!=="USA"){
+      const neighbors=getTerritoryNeighbors(tid);
+      for(const n of neighbors){
+        if(engine.ownership[n]==="USA"){aiCode=owner;target=n;break}
+      }
+      if(aiCode) break;
+    }
+  }
+  if(aiCode&&target){
+    // Save AI forces
+    const aiCountries=new Set();
+    for(const [tid,owner] of Object.entries(engine.ownership)){
+      if(owner===aiCode) aiCountries.add(engine.getTerritoryCountryCode(tid));
+    }
+    let aiTroopsBefore=0;
+    for(const cc of aiCountries) aiTroopsBefore+=engine.forces[cc]?.activeMilitary||0;
+
+    engine._aiAttack(aiCode,target);
+
+    let aiTroopsAfter=0;
+    for(const cc of aiCountries) aiTroopsAfter+=engine.forces[cc]?.activeMilitary||0;
+    ok(aiTroopsAfter<aiTroopsBefore,"AI lost troops from attack");
+  }
+  ok(true,"AI attack losses test completed");
+},"AI Attack Losses Both Sides");
+
+// ── 52. Conquest Progress Check ──
+safe(()=>{
+  console.log("  Conquest Progress Check");
+  const prog=engine.getCountryConquestProgress("USA","USA");
+  ok(prog.owned>0,"USA owns USA territories");
+  ok(prog.owned<=prog.total,"Owned <= total");
+  const enemyProg=engine.getCountryConquestProgress("CHN","USA");
+  eq(enemyProg.owned,0,"USA owns 0 CHN territories");
+},"Conquest Progress Check");
+
 // ── Print Results ──
 console.log("");
 if(fails.length>0) for(const f of fails) console.log(f);

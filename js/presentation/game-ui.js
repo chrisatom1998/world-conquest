@@ -775,9 +775,9 @@ class GameUI {
     const eco = engine.economySystem.getEconomy(code);
     if (!eco) return "<p>No economic data available.</p>";
 
-    // ownership is keyed by territory IDs, not country codes.
-    // Check if this country IS the player's country directly.
-    const isOwned = code === playerCode;
+    // Check if player controls any territory in this country (same as military tab)
+    const countryProgress = engine.getCountryConquestProgress(code, playerCode);
+    const isOwned = countryProgress.owned > 0;
     const isWasteland = engine.geo.nuclearWasteland[code];
 
     let html = `<div class="eco-overview">`;
@@ -1066,7 +1066,8 @@ class GameUI {
   /* =========== Diplomacy Tab =========== */
 
   _renderDiplomacyTab(code, data, ownership, playerCode, engine) {
-    const isOwned = code === playerCode;
+    const countryProgress = engine.getCountryConquestProgress(code, playerCode);
+    const isOwned = countryProgress.owned > 0;
     const owner = code;
     const relation = engine.geo.getRelation(playerCode, owner);
     const atWar = engine.geo.isAtWar(playerCode, owner);
